@@ -115,3 +115,26 @@ the lighting is the dominant defect and DocProj-like shading is expected.
 
 Without a server it falls back to a paper-colour heuristic, so the pipeline
 never depends on the model.
+
+
+## GPU path: what actually transfers
+
+The per-stage benchmark (10 real 64 MP photos) suggested a 8.9x speed-up, but two
+of those wins do not survive contact with the pipeline:
+
+* **The docTR forwards cannot be batched.** U2NETP rescales its gradient input by
+  the min/max of the whole batch, and GeoTr's output moves with the input memory
+  layout (measured: 1.2 px of flow difference in the 288-space, ~0.5 px of
+  sampling error at the page edge). `--gpu-batch` therefore groups the work but
+  runs the forwards per image: outputs are byte-identical to batch 1, and the
+  measured time is 5.07 s/img at batch 1 vs 5.19 s/img at batch 4 — no gain.
+* **JPEG decode stays on the CPU.** nvJPEG on a 64 MP frame costs 0.35 s plus
+  0.11 s for the 2x area downsample, while libjpeg's reduced decode as used by
+  `load_image` costs 0.31 s — and the GPU decode changes pixels by up to 11
+  levels, which would blow the equivalence budget.
+
+What does transfer, with measured equivalence (max|diff|, mean):
+warp 1 / 0.001, flow bit-identical, dewarp 1 / 0.005, illumination 2 / 0.0002.
+On this 6 GB card the GPU path needs ~600 MB free for the 512 px U2NETP forward,
+so it only pays off when the CPU workers are stopped; with five workers resident
+it OOMs, which is why the production batch still runs the CPU path.
