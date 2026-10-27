@@ -170,8 +170,10 @@ def page_masks(detector, images, size: int = 512, *,
         arr = _as_numpy(img)
         h, w = arr.shape[:2]
         small = cv2.resize(arr, (size, size), interpolation=cv2.INTER_AREA)
+        # permute while still 3-D: .to(device) on a 4-D permuted view would land
+        # channels-last, which makes cuDNN pick different kernels than models.py
         x = torch.from_numpy(small[:, :, ::-1].astype(np.float32) / 255.0)
-        x = x.permute(2, 0, 1).unsqueeze(0).to(dev)
+        x = x.permute(2, 0, 1).to(dev).unsqueeze(0)
         m = detector.seg(x)[0][0, 0].float().cpu().numpy()
         out.append(cv2.resize(m, (w, h), interpolation=cv2.INTER_LINEAR))
     return out
@@ -190,8 +192,13 @@ def page_flow_small(detector, pages, *,
     dev = _resolve(device)
     xs = []
     for page in pages:
-        t = _as_u8(page, dev)[0]
-        xs.append(_nchw_float(t, 288)[:, [2, 1, 0]])       # BGR -> RGB
+        # 288 px input exactly as DocTrPipeline.geo_flow builds it: INTER_AREA on
+        # the host, then RGB in 0..1.  A different resampler here shifts the flow
+        # by ~1e-3, which is several pixels of sampling error at the page edge.
+        arr = _as_numpy(page)
+        small = cv2.resize(arr, (288, 288), interpolation=cv2.INTER_AREA)
+        x = torch.from_numpy(small[:, :, ::-1].astype(np.float32) / 255.0)
+        xs.append(x.permute(2, 0, 1).to(dev).unsqueeze(0))
     x = torch.cat(xs, dim=0)
     msk = (detector.seg(x)[0] > 0.5).float()
     bm = detector.geotr(msk * x)                            # (N, 2, 288, 288)
@@ -199,10 +206,15 @@ def page_flow_small(detector, pages, *,
 
 
 def flow_grid(flow: torch.Tensor, height: int, width: int) -> torch.Tensor:
-    """One image's flow -> grid_sample grid ``(1, h, w, 2)`` at page resolution."""
+    """One image's flow -> grid_sample grid ``(1, h, w, 2)`` at page resolution.
+
+    Bilinear upsample then a 3x3 box blur, as ``geo_flow`` does with
+    ``cv2.resize`` + ``cv2.blur`` (reflect padding, not zero: zero would drag the
+    page border towards the image centre).
+    """
     g = F.interpolate(flow.unsqueeze(0), size=(height, width), mode="bilinear",
                       align_corners=False)
-    g = F.avg_pool2d(g, 3, stride=1, padding=1)
+    g = F.avg_pool2d(F.pad(g, (1, 1, 1, 1), mode="reflect"), 3, stride=1)
     return g.permute(0, 2, 3, 1)
 
 
