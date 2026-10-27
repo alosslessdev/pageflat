@@ -16,8 +16,13 @@ import numpy as np
 
 class SamPageSegmenter:
     def __init__(self, checkpoint: str | Path, device: str = "cuda",
-                 model_type: str = "vit_b"):
-        from segment_anything import SamPredictor, sam_model_registry
+                 model_type: str | None = None):
+        if model_type is None:
+            model_type = "vit_t" if "mobile" in Path(checkpoint).name.lower() else "vit_b"
+        if model_type == "vit_t":
+            from mobile_sam import SamPredictor, sam_model_registry
+        else:
+            from segment_anything import SamPredictor, sam_model_registry
 
         sam = sam_model_registry[model_type](checkpoint=str(checkpoint))
         sam.to(device).eval()
