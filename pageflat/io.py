@@ -13,7 +13,8 @@ def load_image(path: str | Path) -> np.ndarray:
     path = str(path)
     with open(path, "rb") as fh:
         buf = np.frombuffer(fh.read(), dtype=np.uint8)
-    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+    # decode without OpenCV's own EXIF rotation; fix_orientation applies it explicitly
+    img = cv2.imdecode(buf, cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
     if img is None:
         raise ValueError(f"cannot decode {path}")
     return fix_orientation(buf, img, path)

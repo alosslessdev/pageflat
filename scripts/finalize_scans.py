@@ -20,7 +20,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pageflat import quality, spine  # noqa: E402
+from pageflat import orientation, quality, spine  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -28,6 +28,8 @@ def main(argv=None) -> int:
     ap.add_argument("scans")
     ap.add_argument("--json", default=None)
     ap.add_argument("--no-split", action="store_true")
+    ap.add_argument("--no-orient", action="store_true",
+                    help="skip the Tesseract orientation check")
     ap.add_argument("--min-ink", type=float, default=0.0025)
     ap.add_argument("--min-lines", type=int, default=3)
     args = ap.parse_args(argv)
@@ -46,6 +48,12 @@ def main(argv=None) -> int:
             shutil.move(str(path), rejected_dir / path.name)
             manifest.append(entry)
             continue
+        if not args.no_orient:
+            rotated, angle = orientation.rotate_upright(img)
+            if angle:
+                img = rotated
+                cv2.imwrite(str(path), img, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+                entry["rotated"] = angle
         if not args.no_split:
             pages = spine.split_spread(img)
             if len(pages) == 2:
