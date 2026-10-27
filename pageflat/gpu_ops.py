@@ -104,7 +104,10 @@ def warp_quad_gpu(img_bgr: ImgLike, quad, out_w: int, out_h: int, *,
     if (x1 - x0) * (y1 - y0) > 0.9 * w * h:  # cropping is not worth it
         x0, y0, x1, y1 = 0, 0, w, h
     cw, ch = x1 - x0, y1 - y0
-    crop = src[y0:y1, x0:x1].permute(2, 0, 1).unsqueeze(0).float().contiguous()
+    # .to(float) with an explicit memory format keeps the upload to a single
+    # NCHW-contiguous copy (float() alone would preserve the permuted strides).
+    crop = src[y0:y1, x0:x1].permute(2, 0, 1).unsqueeze(0).to(
+        dtype=torch.float32, memory_format=torch.contiguous_format)
 
     sx = torch.arange(out_w, dtype=torch.float32, device=dev).view(1, -1)
     out = torch.empty((out_h, out_w, 3), dtype=torch.uint8, device=dev)
@@ -255,6 +258,7 @@ def _percentiles(x: torch.Tensor, qs) -> list[float]:
     ``torch.quantile`` refuses tensors above 2**24 elements; ``kthvalue`` has no
     such limit and gives the exact interpolation endpoint values.
     """
+    x = x.reshape(-1)
     n = x.numel()
     out = []
     for q in qs:
@@ -307,10 +311,13 @@ def scan_finish_gpu(img_bgr: ImgLike, paper_white: bool = True, *,
         gains = means.mean() / means.clamp_min(1e-3)
         out = src.float().mul_(gains).clamp_(0, 255).to(torch.uint8)
 
-    gray = out.float().view(-1, 3).mv(torch.tensor([0.114, 0.587, 0.299], device=dev))
+    f = out.float()
+    # same fixed-point luma as cv2.cvtColor(BGR2GRAY); terms stay exact in f32
+    gray = f.view(-1, 3).mv(torch.tensor([1868.0, 9617.0, 4899.0], device=dev))
+    gray.add_(8192.0).div_(16384.0).floor_()
     lo, hi = _percentiles(gray, (0.003, 0.997))
     del gray
     if hi - lo < 1:
         return _restore(out, to_numpy)
-    return _restore(out.float().sub_(lo).mul_(255.0 / (hi - lo)).clamp_(0, 255)
+    return _restore(f.sub_(lo).mul_(255.0 / (hi - lo)).clamp_(0, 255)
                     .to(torch.uint8), to_numpy)
