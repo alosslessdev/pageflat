@@ -59,8 +59,12 @@ def build(doc: dict, scan_dir: Path, ocr_dir: Path, out_path: Path, font: str,
         if not ok:
             continue
         import io
-        c.setPageSize((w, h))
-        c.drawImage(ImageReader(io.BytesIO(buf.tobytes())), 0, 0, width=w, height=h)
+        # 3508 px at 300 dpi is 842 pt (A4 width); the PDF page must be in
+        # points, not pixels, or the "A4" page prints 4x too large
+        k = 72.0 / 300.0
+        pw, ph = w * k, h * k
+        c.setPageSize((pw, ph))
+        c.drawImage(ImageReader(io.BytesIO(buf.tobytes())), 0, 0, width=pw, height=ph)
         ocr_json = ocr_dir / (scan.stem + ".json")
         if ocr_json.exists():
             data = json.loads(ocr_json.read_text())
@@ -71,12 +75,12 @@ def build(doc: dict, scan_dir: Path, ocr_dir: Path, out_path: Path, font: str,
             text.setTextRenderMode(3)
             for line in data.get("lines", []):
                 x, y, bw, bh = line["bbox"]
-                size = max(4.0, bh * sy * 0.8)
+                size = max(3.0, bh * sy * 0.8 * k)
                 try:
                     text.setFont(font, size)
                 except Exception:
                     text.setFont("Helvetica", size)
-                text.setTextOrigin(x * sx, h - (y + bh) * sy)
+                text.setTextOrigin(x * sx * k, ph - (y + bh) * sy * k)
                 text.textLine(line["text"])
             c.drawText(text)
         c.showPage()
