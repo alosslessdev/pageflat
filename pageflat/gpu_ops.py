@@ -24,6 +24,10 @@ from . import illum
 __all__ = [
     "default_device",
     "warp_quad_gpu",
+    "page_masks",
+    "page_flow_small",
+    "flow_grid",
+    "dewarp_page",
     "resize_long_side_gpu",
     "flatten_illumination_gpu",
     "scan_finish_gpu",
@@ -135,6 +139,91 @@ def warp_quad_gpu(img_bgr: ImgLike, quad, out_w: int, out_h: int, *,
         out[yb:ye] = _round_u8(o[0].permute(1, 2, 0))
         del grid, o
     del crop
+    return _restore(out, to_numpy)
+
+
+# --------------------------------------------------------------------- dewarp
+def _nchw_float(src: torch.Tensor, size: Optional[int] = None) -> torch.Tensor:
+    """uint8 HWC on the device -> (1, C, H, W) float in 0..1, optionally resized."""
+    t = src.permute(2, 0, 1).unsqueeze(0).to(dtype=torch.float32,
+                                             memory_format=torch.contiguous_format)
+    t.div_(255.0)
+    if size is not None:
+        t = F.interpolate(t, size=(size, size), mode="area")
+    return t
+
+
+@torch.no_grad()
+def page_masks(detector, images, size: int = 512, *,
+               device: Optional[Union[str, torch.device]] = None) -> list[np.ndarray]:
+    """DocTr U2NETP page masks at each image's own resolution.
+
+    Same maths as ``DocTrPipeline.page_mask`` (INTER_AREA to `size`, RGB, 0..1,
+    bilinear mask upscale).  The forwards are issued back to back but one image
+    at a time on purpose: U2NETP's gradient front-end rescales by the min/max of
+    the whole batch, so a batched forward returns a different mask for the same
+    image and would move the page quad.
+    """
+    dev = _resolve(device)
+    out = []
+    for img in images:
+        arr = _as_numpy(img)
+        h, w = arr.shape[:2]
+        small = cv2.resize(arr, (size, size), interpolation=cv2.INTER_AREA)
+        x = torch.from_numpy(small[:, :, ::-1].astype(np.float32) / 255.0)
+        x = x.permute(2, 0, 1).unsqueeze(0).to(dev)
+        m = detector.seg(x)[0][0, 0].float().cpu().numpy()
+        out.append(cv2.resize(m, (w, h), interpolation=cv2.INTER_LINEAR))
+    return out
+
+
+@torch.no_grad()
+def page_flow_small(detector, pages, *,
+                    device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
+    """DocTr backward flow for a batch of pages, in the 288 px space.
+
+    Equivalent to the front half of ``DocTrPipeline.geo_flow`` without the host
+    round trip: one U2NETP + GeoTr pass over the batch, returning ``(N, 2, 288,
+    288)``.  ``flow_grid`` turns one slice into a grid_sample grid, which keeps
+    the full-resolution grids (tens of MB each) from piling up in VRAM.
+    """
+    dev = _resolve(device)
+    xs = []
+    for page in pages:
+        t = _as_u8(page, dev)[0]
+        xs.append(_nchw_float(t, 288)[:, [2, 1, 0]])       # BGR -> RGB
+    x = torch.cat(xs, dim=0)
+    msk = (detector.seg(x)[0] > 0.5).float()
+    bm = detector.geotr(msk * x)                            # (N, 2, 288, 288)
+    return (2.0 * (bm / 286.8) - 1.0) * 0.99
+
+
+def flow_grid(flow: torch.Tensor, height: int, width: int) -> torch.Tensor:
+    """One image's flow -> grid_sample grid ``(1, h, w, 2)`` at page resolution."""
+    g = F.interpolate(flow.unsqueeze(0), size=(height, width), mode="bilinear",
+                      align_corners=False)
+    g = F.avg_pool2d(g, 3, stride=1, padding=1)
+    return g.permute(0, 2, 3, 1)
+
+
+def dewarp_page(img_bgr: ImgLike, grid: torch.Tensor, band: int = 512, *,
+                device: Optional[Union[str, torch.device]] = None) -> ImgLike:
+    """Resample a page through a flow grid, the grid_sample half of ``rectify``.
+
+    Bilinear with zero padding and ``align_corners=True``, banded over rows to
+    bound memory, exactly like ``DocTrPipeline.rectify``.
+    """
+    dev = _resolve(device)
+    src, to_numpy = _as_u8(img_bgr, dev)
+    h, w = src.shape[:2]
+    t = _nchw_float(src)
+    out = torch.empty((h, w, 3), dtype=torch.uint8, device=dev)
+    for y0 in range(0, h, band):
+        y1 = min(h, y0 + band)
+        o = F.grid_sample(t, grid[:, y0:y1].contiguous(), align_corners=True, mode="bilinear")
+        out[y0:y1] = o[0].permute(1, 2, 0).mul_(255.0).clamp_(0, 255).to(torch.uint8)
+        del o
+    del t
     return _restore(out, to_numpy)
 
 

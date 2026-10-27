@@ -36,7 +36,8 @@ def _font():
     return "Helvetica"
 
 
-def build(doc: dict, scan_dir: Path, ocr_dir: Path, out_path: Path, font: str) -> int:
+def build(doc: dict, scan_dir: Path, ocr_dir: Path, out_path: Path, font: str,
+          max_side: int = 0, quality: int = 95) -> int:
     files = [scan_dir / f for f in doc["pages"]]
     files = [f for f in files if f.exists()]
     if not files:
@@ -50,11 +51,11 @@ def build(doc: dict, scan_dir: Path, ocr_dir: Path, out_path: Path, font: str) -
         if img is None:
             continue
         h, w = img.shape[:2]
-        # embed a JPEG at a sane resolution: a 3508 px PNG per page makes 15 MB pages
-        scale = min(1.0, 2000.0 / max(h, w))
+        # keep the scan's own resolution by default; max_side > 0 downsamples
+        scale = min(1.0, max_side / max(h, w)) if max_side else 1.0
         page = img if scale >= 1 else cv2.resize(
             img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-        ok, buf = cv2.imencode(".jpg", page, [cv2.IMWRITE_JPEG_QUALITY, 88])
+        ok, buf = cv2.imencode(".jpg", page, [cv2.IMWRITE_JPEG_QUALITY, quality])
         if not ok:
             continue
         import io
@@ -89,6 +90,9 @@ def main(argv=None) -> int:
     ap.add_argument("scans")
     ap.add_argument("--out", default=None)
     ap.add_argument("--ocr", default=None)
+    ap.add_argument("--max-side", type=int, default=0,
+                    help="downsample pages above this size (0 = keep the scan resolution)")
+    ap.add_argument("--quality", type=int, default=95)
     args = ap.parse_args(argv)
 
     docs = json.loads(Path(args.documents).read_text())
@@ -101,7 +105,8 @@ def main(argv=None) -> int:
     total = 0
     for doc in docs:
         name = f"document_{doc['document']:03d}.pdf"
-        n = build(doc, scan_dir, ocr_dir, out_dir / name, font)
+        n = build(doc, scan_dir, ocr_dir, out_dir / name, font,
+                  args.max_side, args.quality)
         total += n
         print(f"{name}: {n} pages", file=sys.stderr, flush=True)
     print(f"{total} pages in {len(docs)} PDFs", file=sys.stderr)

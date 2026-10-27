@@ -53,7 +53,9 @@ def paper_fraction(img_bgr: np.ndarray, max_side: int = 900) -> float:
         img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)),
                              interpolation=cv2.INTER_AREA)
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-    return float(((hsv[:, :, 1] < 70) & (hsv[:, :, 2] > 140)).mean())
+    # brightness, not neutrality: a page of a picture book is still a page even
+    # when most of it is orange, and requiring low saturation threw those away
+    return float((hsv[:, :, 2] > 140).mean())
 
 
 def surface_checks(img_bgr: np.ndarray, max_texture: float = 30.0,

@@ -7,7 +7,7 @@ import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from .pipeline import Settings, process_image
+from .pipeline import Settings, process_batch_gpu, process_image
 
 _DETECTOR = None
 
@@ -30,10 +30,17 @@ def _init_worker(args) -> None:
         _DETECTOR.sam = SamPageSegmenter(args.sam_weights, device=args.device)
 
 
-def _work(item) -> dict:
+def _work(item) -> list[dict]:
     path, out_dir, settings = item
-    res = process_image(path, out_dir, _DETECTOR, settings)
-    return res.__dict__
+    return [process_image(path, out_dir, _DETECTOR, settings).__dict__]
+
+
+def _work_batch(group) -> list[dict]:
+    """One GPU batch: the pixel stages of several images go to the device together."""
+    group = list(group)
+    out_dir, settings = group[0][1], group[0][2]
+    paths = [path for path, _, _ in group]
+    return [res.__dict__ for res in process_batch_gpu(paths, out_dir, _DETECTOR, settings)]
 
 
 def collect_inputs(inputs: list[str], recursive: bool = True) -> list[Path]:
@@ -65,6 +72,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sam", action="store_true", help="refine the page mask with SAM (topmost sheet)")
     ap.add_argument("--sam-weights", default=str(Path(__file__).resolve().parents[1] / "weights" / "sam_vit_b.pth"))
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--gpu-path", action="store_true",
+                    help="keep the pixel stages (mask, warp, unwarp, illumination) "
+                         "on the GPU end to end instead of hopping through numpy")
+    ap.add_argument("--gpu-batch", type=int, default=1,
+                    help="images per GPU batch on --gpu-path (1 keeps them sequential)")
     ap.add_argument("--weights", default=str(Path(__file__).resolve().parents[2] / "weights"))
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--threads", type=int, default=1,
@@ -81,6 +93,8 @@ def main(argv: list[str] | None = None) -> int:
         use_sam=args.sam,
         route_url=args.route_url,
         save_debug=args.debug,
+        gpu_path=args.gpu_path,
+        gpu_batch=max(1, args.gpu_batch),
     )
 
     files = collect_inputs(args.inputs)
@@ -93,28 +107,35 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     jobs = [(str(f), str(out_dir), settings) for f in files]
-    results = []
+    results: list[dict] = []
+
+    batched = settings.gpu_path and settings.gpu_batch > 1
+    work = _work_batch if batched else _work
+    groups = ([jobs[i:i + settings.gpu_batch] for i in range(0, len(jobs), settings.gpu_batch)]
+              if batched else jobs)
+
+    def emit(group: list[dict]) -> None:
+        for res in group:
+            results.append(res)
+            print(f"[{len(results)}/{len(jobs)}] {res['status']:<8} {res['source']}",
+                  flush=True)
 
     if args.workers > 1:
         with ProcessPoolExecutor(max_workers=args.workers, initializer=_init_worker,
                                  initargs=(args,)) as pool:
-            for i, res in enumerate(pool.map(_work, jobs), 1):
-                results.append(res)
-                print(f"[{i}/{len(jobs)}] {res['status']:<8} {res['source']}", flush=True)
+            for group in pool.map(work, groups):
+                emit(group)
     elif args.threads > 1:
         from concurrent.futures import ThreadPoolExecutor
 
         _init_worker(args)
         with ThreadPoolExecutor(max_workers=args.threads) as pool:
-            for i, res in enumerate(pool.map(_work, jobs), 1):
-                results.append(res)
-                print(f"[{i}/{len(jobs)}] {res['status']:<8} {res['source']}", flush=True)
+            for group in pool.map(work, groups):
+                emit(group)
     else:
         _init_worker(args)
-        for i, job in enumerate(jobs, 1):
-            res = _work(job)
-            results.append(res)
-            print(f"[{i}/{len(jobs)}] {res['status']:<8} {res['source']}", flush=True)
+        for group in groups:
+            emit(work(group))
 
     ok = sum(1 for r in results if r["status"] == "ok")
     print(f"done: {ok}/{len(results)} pages accepted")

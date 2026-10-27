@@ -12,8 +12,9 @@ from typing import Optional
 
 import cv2
 import numpy as np
+import torch
 
-from . import geom, illum, orientation, quality, router, spine
+from . import geom, gpu_ops, illum, orientation, quality, router, spine
 from .io import load_image, resize_long_side
 
 
@@ -37,6 +38,8 @@ class Settings:
     max_texture: float = 30.0
     min_paper: float = 0.45
     max_intermediate: int = 3508
+    gpu_path: bool = False              # keep the pixel stages on the device
+    gpu_batch: int = 1                  # images per GPU batch on that path
 
 
 @dataclass
@@ -56,10 +59,10 @@ class PageResult:
     elapsed_s: float = 0.0
 
 
-def detect_page(detector, img: np.ndarray, settings: Settings,
-                use_sam: bool | None = None) -> Optional[geom.PageQuad]:
-    small, scale = resize_long_side(img, settings.mask_work_side)
-    mask = detector.page_mask(small)
+def _quad_from_mask(detector, small: np.ndarray, mask: np.ndarray, scale: float,
+                    settings: Settings, shape: tuple[int, int],
+                    use_sam: bool | None = None) -> Optional[geom.PageQuad]:
+    """Page quad from a mask at the mask-work scale, in full-image coordinates."""
     quad = geom.mask_to_quad(mask)
     if quad is None:
         return None
@@ -77,10 +80,17 @@ def detect_page(detector, img: np.ndarray, settings: Settings,
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     quad.points = geom.refine_quad(gray, quad.points, search_frac=0.02)
     quad.points = (quad.points / scale).astype(np.float32)
-    h, w = img.shape[:2]
+    h, w = shape[:2]
     quad.points[:, 0] = quad.points[:, 0].clip(0, w - 1)
     quad.points[:, 1] = quad.points[:, 1].clip(0, h - 1)
     return quad
+
+
+def detect_page(detector, img: np.ndarray, settings: Settings,
+                use_sam: bool | None = None) -> Optional[geom.PageQuad]:
+    small, scale = resize_long_side(img, settings.mask_work_side)
+    mask = detector.page_mask(small)
+    return _quad_from_mask(detector, small, mask, scale, settings, img.shape, use_sam)
 
 
 def trim_background(img_bgr: np.ndarray, min_removed: float = 0.03) -> np.ndarray:
@@ -152,8 +162,230 @@ def ocr_quality(img_bgr: np.ndarray, max_side: int = 1600) -> float:
     return float(np.mean(confs))
 
 
+_ROTATE = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180,
+           270: cv2.ROTATE_90_COUNTERCLOCKWISE}
+
+
+def process_image_gpu(path: str | Path, out_dir: str | Path, detector,
+                      settings: Settings) -> PageResult:
+    """`process_image` with the pixel stages kept on the GPU."""
+    return process_batch_gpu([path], out_dir, detector, settings)[0]
+
+
+def process_batch_gpu(paths, out_dir: str | Path, detector,
+                      settings: Settings) -> list[PageResult]:
+    """`process_image` with the pixel stages batched onto the GPU.
+
+    The U2NETP mask forward, the GeoTr flow forward, the perspective warp, the
+    flow resample and the illumination pass run on the device; the parts that
+    decide *what* to render (quad fit, page orientation, deskew, spine split,
+    quality gates) and the PNG encoder stay on the CPU, unchanged.
+
+    `paths` holds one file for a plain run, or up to ``settings.gpu_batch``
+    files: the model forwards then go through as one batch and the per-image
+    kernels are queued without syncing, so the device stays busy while the CPU
+    finishes the previous image.  ``elapsed_s`` is the amortised per-image wall
+    clock when the batch is larger than one.
+    """
+    paths = [Path(p) for p in paths]
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    t_batch = time.time()
+    dev = torch.device(detector.device)
+    results = [PageResult(source=str(p), status="error") for p in paths]
+    states: list[dict] = []
+    live: list[dict] = []
+    failure = ""
+
+    for res, path in zip(results, paths):
+        try:
+            img = load_image(path, min_long_side=4200)
+        except Exception as exc:  # noqa: BLE001
+            res.reason = f"load failed: {exc}"
+            continue
+        try:
+            if settings.route_url:
+                route = router.decide(img, settings.route_url)
+                res.route = route.kind
+                if route.kind == "not_page" and route.confidence >= 0.6:
+                    res.status, res.reason = "rejected", "router: not a page"
+                    continue
+            small, scale = resize_long_side(img, settings.mask_work_side)
+        except Exception as exc:  # noqa: BLE001
+            res.reason = repr(exc)
+            continue
+        states.append({"res": res, "path": path, "img": img, "small": small,
+                       "scale": scale, "quad": None, "rect_t": None, "rect": None})
+
+    try:
+        # --- segmentation: one forward for the batch, quad fit on the CPU
+        masks = gpu_ops.page_masks(detector, [s["small"] for s in states]) if states else []
+        for s, mask in zip(states, masks):
+            res = s["res"]
+            try:
+                quad = _quad_from_mask(detector, s["small"], mask, s["scale"], settings,
+                                       s["img"].shape, settings.use_sam)
+            except Exception as exc:  # noqa: BLE001
+                res.reason = repr(exc)
+                continue
+            s["small"] = None
+            if quad is None:
+                res.status, res.reason = "rejected", "no page mask"
+                continue
+            res.quad = quad.points.round(2).tolist()
+            res.area_frac = round(quad.area_frac, 4)
+            res.rectangularity = round(quad.rectangularity, 4)
+            if quad.area_frac < settings.min_quad_area:
+                res.status, res.reason = "rejected", "page too small in frame"
+                continue
+            if quad.rectangularity < settings.min_rectangularity:
+                res.status, res.reason = "rejected", "boundary not page-like"
+                continue
+            s["quad"] = quad
+            live.append(s)
+
+        # --- rectification: upload once, warp on the device, queue the batch
+        for s in live:
+            res = s["res"]
+            try:
+                out_w, out_h = geom.quad_target_size(s["quad"].points,
+                                                     settings.max_intermediate)
+                src = torch.from_numpy(np.ascontiguousarray(s["img"])).to(dev)
+                s["rect_t"] = gpu_ops.warp_quad_gpu(src, s["quad"].points, out_w, out_h)
+                del src
+                if not settings.save_debug:
+                    s["img"] = None            # free the host copy early
+            except Exception as exc:  # noqa: BLE001
+                res.status, res.reason = "error", repr(exc)
+
+        # --- orientation needs the numpy page (one download per image)
+        for s in live:
+            if s["rect_t"] is None:
+                continue
+            rect = s["rect_t"].cpu().numpy()
+            s["rect_t"] = None                     # free the device copy at once
+            angle = 0
+            if settings.auto_orient:
+                angle = orientation.detect_rotation_fast(rect, device=str(detector.device))
+                if angle in _ROTATE:
+                    rect = cv2.rotate(rect, _ROTATE[angle])
+            s["res"].rotation = angle
+            s["rect"] = rect
+        ready = [s for s in live if s["rect"] is not None]
+
+        # --- unwarp: one GeoTr forward for the batch, then one page at a time so
+        # only a single full-resolution grid and source tensor are ever resident
+        doctr = [s for s in ready if settings.dewarp == "doctr"]
+        if doctr:
+            flow = gpu_ops.page_flow_small(detector, [s["rect"] for s in doctr])
+            for i, s in enumerate(doctr):
+                try:
+                    h, w = s["rect"].shape[:2]
+                    grid = gpu_ops.flow_grid(flow[i], h, w)
+                    t = torch.from_numpy(np.ascontiguousarray(s["rect"])).to(dev)
+                    s["rect"] = gpu_ops.dewarp_page(t, grid)
+                    s["res"].dewarp = "doctr"
+                    del t, grid
+                except Exception as exc:  # noqa: BLE001
+                    s["rect"] = None
+                    s["res"].status, s["res"].reason = "error", repr(exc)
+            del flow
+        for s in ready:
+            if settings.dewarp == "doctr":
+                continue
+            if settings.dewarp == "uvdoc":
+                try:
+                    from .models import UVDocDewarper
+                    s["rect"] = UVDocDewarper().rectify(s["rect"])
+                    s["res"].dewarp = "uvdoc"
+                except Exception as exc:  # noqa: BLE001
+                    s["rect"] = None
+                    s["res"].status, s["res"].reason = "error", repr(exc)
+            elif settings.dewarp == "best":
+                try:
+                    from .models import UVDocDewarper
+                    cand_a = detector.rectify(s["rect"])
+                    cand_b = UVDocDewarper().rectify(s["rect"])
+                    qa, qb = ocr_quality(cand_a), ocr_quality(cand_b)
+                    s["res"].dewarp = "doctr" if qa >= qb else "uvdoc"
+                    s["rect"] = cand_a if qa >= qb else cand_b
+                except Exception as exc:  # noqa: BLE001
+                    s["rect"] = None
+                    s["res"].status, s["res"].reason = "error", repr(exc)
+
+        # --- gates, illumination and PNG writing: exactly the CPU path, per page
+        for s in ready:
+            res, rect = s["res"], s["rect"]
+            if rect is None:            # a failed stage already set status/reason
+                continue
+            try:
+                if settings.deskew:
+                    rect, _ = orientation.deskew(rect, max_angle=10.0)
+                if settings.illum_mode == "doctr":
+                    rect = detector.illuminate(rect)
+                if settings.trim_background:
+                    rect = trim_background(rect)
+                pages = spine.split_spread(rect) if settings.split_spreads else [rect]
+                kept = []
+                for page in pages:
+                    surface_ok, m_surface = quality.surface_checks(
+                        page, max_texture=settings.max_texture,
+                        min_paper=settings.min_paper)
+                    if settings.illum_mode == "classical":
+                        page = gpu_ops.scan_finish_gpu(page, device=dev)
+                    elif settings.illum_mode == "doctr":
+                        page = illum.auto_contrast(page)
+                    content_ok, m_content = quality.content_checks(
+                        page, settings.min_ink, settings.min_lines)
+                    res.content = {**m_surface, **m_content}
+                    if surface_ok and content_ok:
+                        kept.append(page)
+                if not kept:
+                    res.status = "rejected"
+                    res.reason = res.reason or "no page content (ink/lines/paper)"
+                    continue
+                for i, page in enumerate(kept):
+                    page = _finish_size(page, settings.scan_long_side)
+                    suffix = "" if len(kept) == 1 else f"_p{i + 1}"
+                    out_path = out_dir / f"{s['path'].stem}{suffix}.png"
+                    if out_path.exists():
+                        tag = hashlib.sha1(str(s["path"]).encode()).hexdigest()[:6]
+                        out_path = out_dir / f"{s['path'].stem}_{tag}{suffix}.png"
+                    cv2.imwrite(str(out_path), page, [cv2.IMWRITE_PNG_COMPRESSION, 1])
+                    res.outputs.append(str(out_path))
+                    if settings.save_debug and s["img"] is not None:
+                        dbg = s["img"].copy()
+                        cv2.polylines(dbg, [s["quad"].points.astype(np.int32)], True,
+                                      (0, 0, 255), 12)
+                        cv2.imwrite(str(out_dir / f"{s['path'].stem}{suffix}_debug.jpg"), dbg,
+                                    [cv2.IMWRITE_JPEG_QUALITY, 80])
+                res.pages = len(kept)
+                res.status = "ok"
+            except Exception as exc:  # noqa: BLE001
+                res.status, res.reason = "error", repr(exc)
+    except Exception as exc:  # noqa: BLE001
+        failure = repr(exc)
+    finally:
+        per_image = (time.time() - t_batch) / max(1, len(results))
+        for res in results:
+            res.elapsed_s = round(per_image, 2)
+            if res.status == "error" and not res.reason:
+                res.reason = failure or "gpu path produced no result"
+        states.clear()
+        live.clear()
+        if dev.type == "cuda":
+            torch.cuda.empty_cache()
+    return results
+
+
 def process_image(path: str | Path, out_dir: str | Path, detector,
                   settings: Settings) -> PageResult:
+    if settings.gpu_path and detector.device.type == "cuda":
+        try:
+            return process_image_gpu(path, out_dir, detector, settings)
+        except Exception as exc:  # noqa: BLE001 - never take the batch down
+            res = PageResult(source=str(path), status="error", reason=repr(exc))
+            return res
     path = Path(path)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
