@@ -132,8 +132,12 @@ def similarity(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
-def session_split(pages: list[dict], gap_seconds: int = 300) -> list[list[dict]]:
-    """Contiguous capture bursts: a book or magazine scanned in one sitting."""
+def session_split(pages: list[dict], gap_seconds: int = 86400) -> list[list[dict]]:
+    """Capture sessions.
+
+    Documents were photographed wholesale, sometimes with breaks, but never
+    across more than one day: a gap of a day or more starts a new session.
+    """
     out: list[list[dict]] = []
     cur: list[dict] = []
     for page in pages:
@@ -147,15 +151,73 @@ def session_split(pages: list[dict], gap_seconds: int = 300) -> list[list[dict]]
     return out
 
 
-def split_session(session: list[dict]) -> list[list[dict]]:
-    """Inside one burst, a page numbered 1 (or a cover) starts a new document."""
+def _page_vectors(pages: list[dict], ocr_dir: Path | None):
+    """TF-IDF vector per page (bag of words over its OCR text)."""
+    import math
+    import re as _re
+    import unicodedata
+
+    def toks(text: str) -> list[str]:
+        text = unicodedata.normalize("NFKD", text.lower())
+        text = "".join(c for c in text if not unicodedata.combining(c))
+        return [t for t in _re.findall(r"[a-z]{4,}", text)]
+
+    docs = []
+    for page in pages:
+        text = ""
+        if ocr_dir is not None:
+            j = ocr_dir / (Path(page["file"]).stem + ".json")
+            if j.exists():
+                data = json.loads(j.read_text())
+                text = " ".join(l["text"] for l in data["lines"])
+        docs.append(toks(text))
+
+    df = {}
+    for t in docs:
+        for w in set(t):
+            df[w] = df.get(w, 0) + 1
+    n = len(docs)
+    idf = {w: math.log((1 + n) / (1 + c)) + 1 for w, c in df.items()}
+    vecs = []
+    for t in docs:
+        tf = {}
+        for w in t:
+            tf[w] = tf.get(w, 0) + 1
+        vec = {w: (c / max(1, len(t))) * idf.get(w, 1.0) for w, c in tf.items()}
+        norm = math.sqrt(sum(v * v for v in vec.values())) or 1.0
+        vecs.append({w: v / norm for w, v in vec.items()})
+    return vecs
+
+
+def _cos(a: dict, b: dict) -> float:
+    if len(a) > len(b):
+        a, b = b, a
+    return sum(v * b.get(w, 0.0) for w, v in a.items())
+
+
+def split_session(session: list[dict], ocr_dir: Path | None = None,
+                  topic_threshold: float = 0.0) -> list[list[dict]]:
+    """Split one capture session into documents.
+
+    A session can hold several magazines or a magazine plus a notebook, so
+    inside the session a new document starts at a cover, at a page numbered 1
+    after a higher number, or where the vocabulary of consecutive pages falls
+    off a cliff (a different publication).
+    """
+    vecs = _page_vectors(session, ocr_dir) if ocr_dir is not None else [None] * len(session)
     docs: list[list[dict]] = []
     cur: list[dict] = []
-    for page in session:
-        starts = bool(cur) and (
-            (page.get("number") == 1 and (cur[-1].get("number") or 0) > 1)
-            or page.get("cover") and not cur[-1].get("cover")
-        )
+    for page, vec in zip(session, vecs):
+        starts = False
+        if cur:
+            prev = cur[-1]
+            starts = bool(
+                (page.get("number") == 1 and (prev.get("number") or 0) > 1)
+                or (page.get("cover") and not prev.get("cover"))
+            )
+            if not starts and vec is not None and vecs[len(cur) - 1] is not None:
+                if _cos(vecs[len(cur) - 1], vec) < topic_threshold:
+                    starts = True
         if starts:
             docs.append(cur)
             cur = []
@@ -321,6 +383,8 @@ def main(argv=None) -> int:
     ap.add_argument("--embed-url", default=None, help="llama-server URL (with --embeddings) for page-topic similarity")
     ap.add_argument("--embed-threshold", type=float, default=0.72)
     ap.add_argument("--scan-dir", default=None, help="scan directory (enables cover detection)")
+    ap.add_argument("--session-gap-hours", type=float, default=24.0,
+                    help="a pause longer than this starts a new session (documents never span a day)")
     ap.add_argument("--sessions", action="store_true",
                     help="group wholesale capture bursts as documents (books, magazines)")
     ap.add_argument("--merge-similar", type=float, default=0.0,
@@ -336,8 +400,8 @@ def main(argv=None) -> int:
         return 1
     if args.sessions:
         docs = []
-        for session in session_split(pages):
-            docs.extend(split_session(session))
+        for session in session_split(pages, int(args.session_gap_hours * 3600)):
+            docs.extend(split_session(session, Path(args.ocr_dir)))
     else:
         docs = group(pages, args.threshold, args.gap_minutes, args.llm,
                      args.embed_url, args.embed_threshold)

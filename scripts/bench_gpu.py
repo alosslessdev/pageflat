@@ -11,7 +11,10 @@ each path, and the GPU utilisation nvidia-smi saw during each phase.
 
 Stage timings are means over N images; the mask/warp/illumination stages run the
 real pipeline code on one side and pageflat.gpu_ops on the other, so the table
-shows what a cutover would actually buy.
+shows what a cutover would actually buy.  Each path is warmed up on the first
+photo before timing, and the CPU column forces illum.scan_finish onto its numpy
+body (it dispatches to a GPU path of its own when it can), so both columns
+measure the code they claim to.
 """
 from __future__ import annotations
 
@@ -192,6 +195,7 @@ def run_gpu(path: Path, det: DocTrPipeline, png: Path) -> dict:
         buf = torch.frombuffer(bytearray(path.read_bytes()), dtype=torch.uint8)
         chw = torchvision_decode_jpeg(buf)
         img = chw.permute(1, 2, 0).flip(-1)          # RGB CHW -> BGR HWC, uint8
+        del buf, chw
     with _timed(t, "mask_infer"):
         small, scale = gpu_ops.resize_long_side_gpu(img, MASK_WORK_SIDE)
         mask = _gpu_mask(det, small)
