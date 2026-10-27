@@ -32,6 +32,8 @@ class Settings:
     min_rectangularity: float = 0.65
     min_ink: float = 0.0025
     min_lines: int = 3
+    max_texture: float = 14.0
+    min_paper: float = 0.45
     max_intermediate: int = 4200
 
 
@@ -93,8 +95,10 @@ def ocr_quality(img_bgr: np.ndarray, max_side: int = 1600) -> float:
         tmp = fh.name
     cv2.imwrite(tmp, small)
     try:
-        out = subprocess.run(["tesseract", tmp, "stdout", "--psm", "3", "tsv"],
-                             capture_output=True, text=True, timeout=120).stdout
+        cmd = ["tesseract", tmp, "stdout", "--psm", "3"]
+        if orientation.ocr_lang():
+            cmd += ["-l", orientation.ocr_lang()]
+        out = subprocess.run(cmd + ["tsv"], capture_output=True, text=True, timeout=120).stdout
     except Exception:
         return 0.0
     finally:
@@ -166,19 +170,27 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
         if settings.deskew:
             rect, _ = orientation.deskew(rect, max_angle=10.0)
 
-        if settings.illum_mode == "classical":
-            rect = illum.scan_finish(rect)
-        elif settings.illum_mode == "doctr":
+        if settings.illum_mode == "doctr":
             rect = detector.illuminate(rect)
-            rect = illum.auto_contrast(rect)
 
-        ok_content, metrics = quality.looks_like_page(rect, settings.min_ink, settings.min_lines)
-        res.content = metrics
-        if not ok_content:
-            res.status, res.reason = "rejected", "no page content (ink/lines)"
-            return res
-
+        # split before flattening: the gutter shadow is what identifies a spine
         pages = spine.split_spread(rect) if settings.split_spreads else [rect]
+        kept = []
+        for page in pages:
+            surface_ok, m_surface = quality.surface_checks(page, max_texture=settings.max_texture,
+                                                           min_paper=settings.min_paper)
+            if settings.illum_mode == "classical":
+                page = illum.scan_finish(page)
+            elif settings.illum_mode == "doctr":
+                page = illum.auto_contrast(page)
+            content_ok, m_content = quality.content_checks(page, settings.min_ink, settings.min_lines)
+            res.content = {**m_surface, **m_content}
+            if surface_ok and content_ok:
+                kept.append(page)
+        if not kept:
+            res.status, res.reason = "rejected", res.reason or "no page content (ink/lines/paper)"
+            return res
+        pages = kept
         for i, page in enumerate(pages):
             page = _finish_size(page, settings.scan_long_side)
             suffix = "" if len(pages) == 1 else f"_p{i + 1}"

@@ -9,12 +9,35 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+_LANG: str | None = None
 
-def detect_rotation(img_bgr: np.ndarray) -> int:
-    """Clockwise rotation in degrees (0/90/180/270) needed to make text upright."""
+
+def ocr_lang() -> str:
+    """First usable Tesseract language (installs often ship without 'eng')."""
+    global _LANG
+    if _LANG is None:
+        try:
+            out = subprocess.run(["tesseract", "--list-langs"], capture_output=True,
+                                 text=True, timeout=20).stdout.splitlines()[1:]
+            langs = [l.strip() for l in out if l.strip() and l.strip() != "osd"]
+        except Exception:
+            langs = []
+        for pref in ("spa+eng", "eng", "spa"):
+            parts = pref.split("+")
+            if all(p in langs for p in parts):
+                _LANG = pref
+                break
+        else:
+            _LANG = langs[0] if langs else ""
+    return _LANG
+
+
+def _osd_rotation(img_bgr: np.ndarray) -> int | None:
+    """Rotation from Tesseract OSD, but only when it is confident."""
     h, w = img_bgr.shape[:2]
     scale = min(1.0, 1600.0 / max(h, w))
-    small = cv2.resize(img_bgr, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+    small = cv2.resize(img_bgr, (int(w * scale), int(h * scale)),
+                       interpolation=cv2.INTER_AREA) if scale < 1 else img_bgr
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as fh:
         tmp = fh.name
     cv2.imwrite(tmp, small)
@@ -22,13 +45,70 @@ def detect_rotation(img_bgr: np.ndarray) -> int:
         out = subprocess.run(["tesseract", tmp, "-", "--psm", "0"], capture_output=True,
                              text=True, timeout=60).stdout
     except Exception:
-        return 0
+        return None
     finally:
         Path(tmp).unlink(missing_ok=True)
-    m = re.search(r"Rotate:\s*(\d+)", out)
-    if not m:
+    rot = re.search(r"Rotate:\s*(\d+)", out)
+    conf = re.search(r"Orientation confidence:\s*([\d.]+)", out)
+    if not rot:
+        return None
+    if conf and float(conf.group(1)) < 2.0:
+        return None
+    return int(rot.group(1)) % 360
+
+
+def _ocr_score(img_bgr: np.ndarray) -> float:
+    """Sum of confident word scores (0 when there is no machine-readable text)."""
+    h, w = img_bgr.shape[:2]
+    scale = min(1.0, 1200.0 / max(h, w))
+    small = cv2.resize(img_bgr, (int(w * scale), int(h * scale)),
+                       interpolation=cv2.INTER_AREA) if scale < 1 else img_bgr
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as fh:
+        tmp = fh.name
+    cv2.imwrite(tmp, small)
+    try:
+        cmd = ["tesseract", tmp, "stdout", "--psm", "6"]
+        if ocr_lang():
+            cmd += ["-l", ocr_lang()]
+        out = subprocess.run(cmd + ["tsv"], capture_output=True, text=True, timeout=90).stdout
+    except Exception:
+        return 0.0
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    total = 0.0
+    for line in out.splitlines()[1:]:
+        parts = line.split("\t")
+        if len(parts) >= 12:
+            try:
+                conf = float(parts[10])
+            except ValueError:
+                continue
+            word = parts[11].strip()
+            if len(word) > 2 and conf > 55:
+                total += conf * min(len(word), 8)
+    return total
+
+
+def detect_rotation(img_bgr: np.ndarray) -> int:
+    """Clockwise rotation in degrees (0/90/180/270) needed to make text upright.
+
+    Tesseract OSD alone is unreliable (it reports low confidence or "too few
+    characters" and callers silently keep the wrong rotation), so the four
+    candidate rotations are scored by OCR confidence and the best wins.
+    """
+    osd = _osd_rotation(img_bgr)
+    if osd is not None:
+        return osd
+
+    variants = {0: img_bgr,
+                90: cv2.rotate(img_bgr, cv2.ROTATE_90_CLOCKWISE),
+                180: cv2.rotate(img_bgr, cv2.ROTATE_180),
+                270: cv2.rotate(img_bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)}
+    scores = {a: _ocr_score(v) for a, v in variants.items()}
+    best = max(scores, key=scores.get)
+    if scores[best] <= 0:
         return 0
-    return int(m.group(1)) % 360
+    return best
 
 
 def rotate_upright(img_bgr: np.ndarray) -> tuple[np.ndarray, int]:

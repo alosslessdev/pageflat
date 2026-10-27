@@ -67,6 +67,8 @@ class SamPageSegmenter:
                 contain = (m & prior_small).sum() / max(1, m.sum())
                 if contain < 0.7:
                     continue
+            if prior_small is not None and area < 0.5 * float(prior_small.mean()):
+                continue
             candidates.append((area, float(s), m))
         if not candidates:
             best = max(zip(masks, scores), key=lambda t: float(t[1]))[0]

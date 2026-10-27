@@ -20,29 +20,46 @@ def _column_profile(img_bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             cv2.GaussianBlur(edge.reshape(1, -1), (k, 1), 0).ravel())
 
 
-def find_spine_x(img_bgr: np.ndarray, search=(0.42, 0.58), min_contrast: float = 2.5) -> Optional[int]:
-    """Return the x of a plausible book gutter, or None."""
+def _gutter_candidates(img_bgr: np.ndarray, lo_frac: float = 0.15,
+                       hi_frac: float = 0.85) -> list[tuple[int, float]]:
+    """Dark shadow bands that look like a book gutter, strongest first."""
     h, w = img_bgr.shape[:2]
-    if w / float(h) < 1.05:
-        return None
+    if w / float(h) < 1.0:
+        return []
     dark, edge = _column_profile(img_bgr)
-    lo, hi = int(search[0] * w), int(search[1] * w)
-    if hi <= lo:
-        return None
-    seg_dark = dark[lo:hi]
-    seg_edge = edge[lo:hi]
-    # gutter: darkest vertical band that is also relatively smooth
-    cost = seg_dark - 0.15 * seg_edge
-    idx = int(np.argmax(cost))
-    x = lo + idx
+    lo, hi = int(lo_frac * w), int(hi_frac * w)
+    if hi - lo < 20:
+        return []
+    cost = dark - 0.15 * edge
+    out: list[tuple[int, float]] = []
+    work = cost.copy()
+    for _ in range(4):
+        idx = int(np.argmax(work[lo:hi]))
+        x = lo + idx
+        peak = float(dark[x])
+        half = peak * 0.5
+        left = x
+        while left > lo and dark[left] > half:
+            left -= 1
+        right = x
+        while right < hi - 1 and dark[right] > half:
+            right += 1
+        band_width = right - left
+        local = np.concatenate([dark[max(0, x - 40):max(0, x - band_width)],
+                                dark[min(w, x + band_width):min(w, x + 40)]])
+        if band_width >= max(3, 0.004 * w) and local.size >= 5 and \
+                peak - float(np.median(local)) >= 10.0:
+            out.append((x, peak - float(np.median(local))))
+        work[max(lo, x - int(0.08 * w)):min(hi, x + int(0.08 * w))] = -1e9
+    return out
 
-    # contrast against the page interior must be meaningful
-    inner = np.concatenate([dark[lo:x - max(3, w // 100)], dark[x + max(3, w // 100):hi]])
-    if inner.size < 10:
-        return None
-    if dark[x] < inner.mean() + min_contrast * inner.std() + 2.0:
-        return None
-    return x
+
+def find_spine_x(img_bgr: np.ndarray) -> Optional[int]:
+    """Strongest gutter that is not crossed by a spanning image."""
+    for x, _ in _gutter_candidates(img_bgr):
+        if not content_crosses_spine(img_bgr, x):
+            return x
+    return None
 
 
 def content_crosses_spine(img_bgr: np.ndarray, x: int, band: int | None = None,
@@ -68,16 +85,25 @@ def content_crosses_spine(img_bgr: np.ndarray, x: int, band: int | None = None,
 
 
 def split_spread(img_bgr: np.ndarray, x: Optional[int] = None,
-                 min_gutter: int = 8) -> list[np.ndarray]:
-    """Split a spread at the gutter; returns one or two page images."""
-    if x is None:
-        x = find_spine_x(img_bgr)
-    if x is None:
-        return [img_bgr]
-    if content_crosses_spine(img_bgr, x):
-        return [img_bgr]
+                 min_width_frac: float = 0.15) -> list[np.ndarray]:
+    """Cut a spread at every detected gutter; returns one or more pages."""
     h, w = img_bgr.shape[:2]
-    left = img_bgr[:, : max(1, x - min_gutter // 2)]
-    right = img_bgr[:, min(w - 1, x + min_gutter // 2):]
-    pages = [p for p in (left, right) if p.shape[1] > w * 0.15]
-    return pages or [img_bgr]
+    cuts: list[int] = []
+    if x is not None:
+        cuts = [] if content_crosses_spine(img_bgr, x) else [x]
+    else:
+        for gx, _ in _gutter_candidates(img_bgr):
+            if content_crosses_spine(img_bgr, gx):
+                continue
+            if all(abs(gx - c) > 0.12 * w for c in cuts):
+                cuts.append(gx)
+    if not cuts:
+        return [img_bgr]
+    cuts.sort()
+    bounds = [0] + cuts + [w]
+    pages = []
+    for a, b in zip(bounds, bounds[1:]):
+        if (b - a) < min_width_frac * w:
+            continue
+        pages.append(img_bgr[:, a:b])
+    return pages if len(pages) > 1 else [img_bgr]

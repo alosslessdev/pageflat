@@ -45,10 +45,39 @@ def paper_texture(img_bgr: np.ndarray, max_side: int = 900) -> float:
     return float(np.median(np.abs(cv2.Laplacian(gray, cv2.CV_32F))))
 
 
-def looks_like_page(img_bgr: np.ndarray, min_ink: float = 0.0025,
-                    min_lines: int = 3, max_texture: float = 14.0) -> tuple[bool, dict]:
-    frac, lines = ink_fraction(img_bgr)
+def paper_fraction(img_bgr: np.ndarray, max_side: int = 900) -> float:
+    """Fraction of neutral, bright pixels — paper, as opposed to scenes or fabric."""
+    h, w = img_bgr.shape[:2]
+    scale = min(1.0, max_side / float(max(h, w)))
+    if scale < 1:
+        img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)),
+                             interpolation=cv2.INTER_AREA)
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    return float(((hsv[:, :, 1] < 70) & (hsv[:, :, 2] > 140)).mean())
+
+
+def surface_checks(img_bgr: np.ndarray, max_texture: float = 14.0,
+                   min_paper: float = 0.45) -> tuple[bool, dict]:
+    """Paper-surface tests. Run these BEFORE illumination flattening, which
+    normalises away exactly the colour and texture cues they rely on."""
     tex = paper_texture(img_bgr)
-    ok = (frac >= min_ink or lines >= min_lines) and tex <= max_texture
-    return ok, {"ink_fraction": round(frac, 5), "long_lines": lines,
-                "texture": round(tex, 2)}
+    paper = paper_fraction(img_bgr)
+    return (tex <= max_texture and paper >= min_paper), {
+        "texture": round(tex, 2), "paper_fraction": round(paper, 3)}
+
+
+def content_checks(img_bgr: np.ndarray, min_ink: float = 0.0025,
+                   min_lines: int = 3) -> tuple[bool, dict]:
+    """Ink/rule tests. Run these AFTER flattening, when the page is even."""
+    frac, lines = ink_fraction(img_bgr)
+    return (frac >= min_ink or lines >= min_lines), {
+        "ink_fraction": round(frac, 5), "long_lines": lines}
+
+
+def looks_like_page(img_bgr: np.ndarray, min_ink: float = 0.0025,
+                    min_lines: int = 3, max_texture: float = 14.0,
+                    min_paper: float = 0.45) -> tuple[bool, dict]:
+    """Convenience wrapper for images that are already final (no separate surface pass)."""
+    ok_s, m1 = surface_checks(img_bgr, max_texture, min_paper)
+    ok_c, m2 = content_checks(img_bgr, min_ink, min_lines)
+    return ok_s and ok_c, {**m1, **m2}
