@@ -23,6 +23,7 @@ class Settings:
     mask_work_side: int = 1600
     use_sam: bool = False
     route_url: str = ""            # llama-server with a Clef model, optional
+    trim_background: bool = False  # opt-in: drop saturated background (bed sheets, table cloth)
     dewarp: str = "doctr"               # doctr | uvdoc | best | none
     illum_mode: str = "classical"       # classical | doctr | none
     split_spreads: bool = True
@@ -80,6 +81,35 @@ def detect_page(detector, img: np.ndarray, settings: Settings,
     quad.points[:, 0] = quad.points[:, 0].clip(0, w - 1)
     quad.points[:, 1] = quad.points[:, 1].clip(0, h - 1)
     return quad
+
+
+def trim_background(img_bgr: np.ndarray, min_removed: float = 0.03) -> np.ndarray:
+    """Trim saturated background that survived segmentation.
+
+    A page photographed on a coloured bed sheet often keeps a strip of fabric
+    around the sheet. The paper is neutral and bright, the fabric is neither, so
+    keep the largest paper-like component that contains the centre.
+    """
+    h, w = img_bgr.shape[:2]
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    paper = ((hsv[:, :, 1] < 80) & (hsv[:, :, 2] > 110)).astype(np.uint8)
+    paper = cv2.morphologyEx(paper, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(paper, 8)
+    if n <= 1:
+        return img_bgr
+    centre = labels[h // 2, w // 2] or (1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA])))
+    x, y, bw, bh, area = stats[centre]
+    if area < 0.25 * h * w:
+        return img_bgr
+    crop = img_bgr[y:y + bh, x:x + bw]
+    if crop.size == 0:
+        return img_bgr
+    removed = 1.0 - (bw * bh) / float(h * w)
+    if removed < min_removed:
+        return img_bgr
+    if crop.shape[0] < 0.4 * h or crop.shape[1] < 0.3 * w:
+        return img_bgr
+    return crop
 
 
 def _finish_size(img: np.ndarray, long_side: int) -> np.ndarray:
@@ -190,6 +220,10 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
 
         if settings.illum_mode == "doctr":
             rect = detector.illuminate(rect)
+
+        # saturated background (bed sheet, table cloth) that survived segmentation
+        if settings.trim_background:
+            rect = trim_background(rect)
 
         # split before flattening: the gutter shadow is what identifies a spine
         pages = spine.split_spread(rect) if settings.split_spreads else [rect]
