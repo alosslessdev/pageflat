@@ -20,7 +20,7 @@ def _column_profile(img_bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             cv2.GaussianBlur(edge.reshape(1, -1), (k, 1), 0).ravel())
 
 
-def find_spine_x(img_bgr: np.ndarray, search=(0.35, 0.65)) -> Optional[int]:
+def find_spine_x(img_bgr: np.ndarray, search=(0.42, 0.58), min_contrast: float = 2.5) -> Optional[int]:
     """Return the x of a plausible book gutter, or None."""
     h, w = img_bgr.shape[:2]
     if w / float(h) < 1.05:
@@ -40,12 +40,12 @@ def find_spine_x(img_bgr: np.ndarray, search=(0.35, 0.65)) -> Optional[int]:
     inner = np.concatenate([dark[lo:x - max(3, w // 100)], dark[x + max(3, w // 100):hi]])
     if inner.size < 10:
         return None
-    if dark[x] < inner.mean() + 0.15 * inner.std() + 2.0:
+    if dark[x] < inner.mean() + min_contrast * inner.std() + 2.0:
         return None
     return x
 
 
-def content_crosses_spine(img_bgr: np.ndarray, x: int, band: int = 12,
+def content_crosses_spine(img_bgr: np.ndarray, x: int, band: int | None = None,
                           white_frac: float = 0.18) -> bool:
     """True when a picture appears to run across the gutter.
 
@@ -55,6 +55,8 @@ def content_crosses_spine(img_bgr: np.ndarray, x: int, band: int = 12,
     """
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
     h, w = gray.shape
+    if band is None:
+        band = max(6, int(round(0.012 * w)))
     x0 = max(0, x - band)
     x1 = min(w, x + band + 1)
     strip = gray[:, x0:x1]

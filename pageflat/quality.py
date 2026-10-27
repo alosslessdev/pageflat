@@ -34,8 +34,21 @@ def ink_fraction(img_bgr: np.ndarray, max_side: int = 900) -> tuple[float, int]:
     return frac, good
 
 
+def paper_texture(img_bgr: np.ndarray, max_side: int = 900) -> float:
+    """Median |Laplacian| — paper is smooth, fabric and other surfaces are not."""
+    h, w = img_bgr.shape[:2]
+    scale = min(1.0, max_side / float(max(h, w)))
+    if scale < 1:
+        img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)),
+                             interpolation=cv2.INTER_AREA)
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    return float(np.median(np.abs(cv2.Laplacian(gray, cv2.CV_32F))))
+
+
 def looks_like_page(img_bgr: np.ndarray, min_ink: float = 0.0025,
-                    min_lines: int = 3) -> tuple[bool, dict]:
+                    min_lines: int = 3, max_texture: float = 14.0) -> tuple[bool, dict]:
     frac, lines = ink_fraction(img_bgr)
-    ok = frac >= min_ink or lines >= min_lines
-    return ok, {"ink_fraction": round(frac, 5), "long_lines": lines}
+    tex = paper_texture(img_bgr)
+    ok = (frac >= min_ink or lines >= min_lines) and tex <= max_texture
+    return ok, {"ink_fraction": round(frac, 5), "long_lines": lines,
+                "texture": round(tex, 2)}
