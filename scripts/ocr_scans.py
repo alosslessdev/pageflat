@@ -109,9 +109,13 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     root = Path(args.scans)
-    out_dir = args.out or str(root / "ocr")
+    if root.is_file():
+        files = [l.strip() for l in root.read_text().splitlines() if l.strip()]
+        out_dir = args.out or str(Path(files[0]).parent / "ocr")
+    else:
+        out_dir = args.out or str(root / "ocr")
+        files = [str(p) for p in sorted(root.glob("*.png"))]
     lang = _lang()
-    files = [str(p) for p in sorted(root.glob("*.png"))]
     print(f"{len(files)} scans, lang={lang or '-'}", file=sys.stderr)
 
     done = 0
