@@ -13,6 +13,7 @@ import argparse
 import json
 import shutil
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import cv2
@@ -26,8 +27,11 @@ from pageflat import orientation, quality, spine  # noqa: E402
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("scans")
+    ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--json", default=None)
     ap.add_argument("--no-split", action="store_true")
+    ap.add_argument("--no-gate", action="store_true",
+                    help="keep every scan (only fix orientation / split)")
     ap.add_argument("--no-orient", action="store_true",
                     help="skip the Tesseract orientation check")
     ap.add_argument("--min-ink", type=float, default=0.0025)
@@ -35,19 +39,36 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     root = Path(args.scans)
+    files = sorted(root.glob("*.png"))
+    jobs = [(str(f), args) for f in files]
+    if args.workers > 1:
+        with ProcessPoolExecutor(max_workers=args.workers) as pool:
+            manifest = list(pool.map(_process, jobs))
+    else:
+        manifest = [_process(j) for j in jobs]
+    ok_count = sum(1 for m in manifest if m["status"] == "ok")
+    print(f"{ok_count} ok, {len(manifest) - ok_count} rejected", file=sys.stderr)
+    if args.json:
+        Path(args.json).write_text(json.dumps(manifest, indent=1))
+    return 0
+
+
+def _process(job) -> dict:
+    path_str, args = job
+    path = Path(path_str)
+    root = path.parent
     rejected_dir = root / "_rejected"
-    manifest = []
-    for path in sorted(root.glob("*.png")):
+    if True:
         img = cv2.imread(str(path))
         if img is None:
-            continue
-        ok, metrics = quality.looks_like_page(img, args.min_ink, args.min_lines)
+            return {"file": path.name, "status": "skipped"}
+        ok, metrics = (True, {}) if args.no_gate else \
+            quality.looks_like_page(img, args.min_ink, args.min_lines)
         entry = {"file": path.name, "status": "ok" if ok else "rejected", **metrics}
         if not ok:
             rejected_dir.mkdir(exist_ok=True)
             shutil.move(str(path), rejected_dir / path.name)
-            manifest.append(entry)
-            continue
+            return entry
         if not args.no_orient:
             rotated, angle = orientation.rotate_upright(img)
             if angle:
@@ -62,12 +83,7 @@ def main(argv=None) -> int:
                     out = root / f"{path.stem}_p{i + 1}.png"
                     cv2.imwrite(str(out), page, [cv2.IMWRITE_PNG_COMPRESSION, 3])
                 entry["split"] = True
-        manifest.append(entry)
-    print(f"{sum(1 for m in manifest if m['status'] == 'ok')} ok, "
-          f"{sum(1 for m in manifest if m['status'] != 'ok')} rejected", file=sys.stderr)
-    if args.json:
-        Path(args.json).write_text(json.dumps(manifest, indent=1))
-    return 0
+        return entry
 
 
 if __name__ == "__main__":
