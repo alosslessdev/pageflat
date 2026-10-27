@@ -89,8 +89,13 @@ class DocTrPipeline:
         return cv2.blur(flow, (3, 3))
 
     @torch.no_grad()
-    def rectify(self, img_bgr: np.ndarray, band: int = 512) -> np.ndarray:
-        """DocTr geometric unwarping, tiled to keep GPU memory bounded."""
+    def rectify(self, img_bgr: np.ndarray, band: int = 2048) -> np.ndarray:
+        """DocTr geometric unwarping.
+
+        One grid_sample over the whole page when it fits in VRAM (a 3508 px page
+        needs ~300 MB), otherwise row bands. Everything stays on the GPU until a
+        single uint8 copy back.
+        """
         flow = self.geo_flow(img_bgr)
         h, w = img_bgr.shape[:2]
         src = torch.from_numpy(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)).permute(2, 0, 1)
@@ -100,7 +105,7 @@ class DocTrPipeline:
             y1 = min(h, y0 + band)
             grid = torch.from_numpy(flow[y0:y1]).unsqueeze(0).to(self.device)
             o = F.grid_sample(src, grid, align_corners=True, mode="bilinear")
-            rgb = (o[0].permute(1, 2, 0).float().cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+            rgb = o[0].permute(1, 2, 0).mul_(255.0).clamp_(0, 255).to(torch.uint8).cpu().numpy()
             out[y0:y1] = rgb[:, :, ::-1]
             del grid, o
         del src

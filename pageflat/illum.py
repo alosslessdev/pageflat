@@ -10,9 +10,20 @@ def _poly_terms(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 
 
 def fit_background_model(img_bgr: np.ndarray, grid: int = 24, pct: float = 90.0) -> np.ndarray:
-    """Quadratic paper-lighting coefficients (6, 3) fitted to tile brightness percentiles."""
+    """Quadratic paper-lighting coefficients (6, 3) fitted to tile brightness percentiles.
+
+    Percentiles are computed on a small copy: a lighting surface is smooth, so
+    full-resolution statistics only cost time.
+    """
     h, w = img_bgr.shape[:2]
-    img = img_bgr
+    small_side = 512
+    if max(h, w) > small_side:
+        s = small_side / float(max(h, w))
+        img = cv2.resize(img_bgr, (max(32, int(w * s)), max(32, int(h * s))),
+                         interpolation=cv2.INTER_AREA)
+    else:
+        img = img_bgr
+    h, w = img.shape[:2]
     ys = np.linspace(0, h, grid + 1).astype(int)
     xs = np.linspace(0, w, grid + 1).astype(int)
     pts, vals = [], []
@@ -76,6 +87,10 @@ def auto_contrast(img_bgr: np.ndarray, low: float = 0.5, high: float = 99.6) -> 
 
 def scan_finish(img_bgr: np.ndarray, paper_white: bool = True) -> np.ndarray:
     """Turn a dewarped page into a flatbed-looking scan (one tonal pass + contrast)."""
+    try:
+        return _scan_finish_gpu(img_bgr, paper_white)
+    except Exception:
+        pass
     if paper_white:
         coef = fit_background_model(img_bgr)
         bg = background_from_model(coef, img_bgr.shape[:2])
@@ -89,3 +104,29 @@ def scan_finish(img_bgr: np.ndarray, paper_white: bool = True) -> np.ndarray:
     else:
         out = gray_world_white_balance(img_bgr)
     return auto_contrast(out, 0.3, 99.7)
+
+
+def _scan_finish_gpu(img_bgr: np.ndarray, paper_white: bool) -> np.ndarray:
+    """Same tonal pass as scan_finish, but the per-pixel maths runs on the GPU."""
+    import torch
+    import torch.nn.functional as F
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("no cuda")
+    device = torch.device("cuda")
+    coef = fit_background_model(img_bgr)
+    bg_small = background_from_model(coef, (160, 160)).astype(np.float32)  # 160x160x3
+    h, w = img_bgr.shape[:2]
+    means = np.array(cv2.mean(img_bgr)[:3], np.float32)
+    if paper_white:
+        wb = float(means.mean()) / np.maximum(means, 1e-3)
+        scale_small = 245.0 / bg_small * wb.reshape(1, 1, 3)
+    else:
+        scale_small = np.ones_like(bg_small)
+
+    t_scale = torch.from_numpy(scale_small).permute(2, 0, 1).unsqueeze(0).to(device)
+    t_scale = F.interpolate(t_scale, size=(h, w), mode="bilinear", align_corners=False)
+    t_img = torch.from_numpy(np.ascontiguousarray(img_bgr)).permute(2, 0, 1).unsqueeze(0).to(device)
+    out = (t_img.float() * t_scale).clamp_(0, 255).to(torch.uint8)
+    arr = out[0].permute(1, 2, 0).cpu().numpy()
+    return auto_contrast(arr, 0.3, 99.7)

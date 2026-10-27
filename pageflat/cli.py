@@ -14,6 +14,13 @@ _DETECTOR = None
 
 def _init_worker(args) -> None:
     global _DETECTOR
+    import cv2
+    import torch
+
+    # every worker process is one of several: OpenCV's and torch's default
+    # "use all cores" thread pools oversubscribe the machine badly
+    cv2.setNumThreads(1)
+    torch.set_num_threads(1 if args.device == "cuda" else 2)
     from .models import DocTrPipeline
 
     _DETECTOR = DocTrPipeline(device=args.device, weights_dir=args.weights)

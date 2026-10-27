@@ -34,7 +34,7 @@ class Settings:
     min_lines: int = 3
     max_texture: float = 30.0
     min_paper: float = 0.45
-    max_intermediate: int = 4200
+    max_intermediate: int = 3508
 
 
 @dataclass
@@ -127,7 +127,7 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
     res = PageResult(source=str(path), status="error")
 
     try:
-        img = load_image(path)
+        img = load_image(path, min_long_side=4200)
     except Exception as exc:  # noqa: BLE001
         res.reason = f"load failed: {exc}"
         return res
@@ -150,7 +150,14 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
         rect = geom.warp_quad(img, quad.points, max_side=settings.max_intermediate)
 
         if settings.auto_orient:
-            rect, res.rotation = orientation.rotate_upright(rect)
+            angle = orientation.detect_rotation_fast(rect, device=str(detector.device))
+            if angle == 90:
+                rect = cv2.rotate(rect, cv2.ROTATE_90_CLOCKWISE)
+            elif angle == 180:
+                rect = cv2.rotate(rect, cv2.ROTATE_180)
+            elif angle == 270:
+                rect = cv2.rotate(rect, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            res.rotation = angle
 
         if settings.dewarp == "doctr":
             rect = detector.rectify(rect)
@@ -198,7 +205,7 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
             if out_path.exists():
                 tag = hashlib.sha1(str(path).encode()).hexdigest()[:6]
                 out_path = out_dir / f"{path.stem}_{tag}{suffix}.png"
-            cv2.imwrite(str(out_path), page, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+            cv2.imwrite(str(out_path), page, [cv2.IMWRITE_PNG_COMPRESSION, 1])
             res.outputs.append(str(out_path))
             if settings.save_debug:
                 dbg = img.copy()

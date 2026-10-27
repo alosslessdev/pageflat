@@ -152,3 +152,30 @@ def deskew(img_bgr: np.ndarray, max_angle: float = 12.0) -> tuple[np.ndarray, fl
     out = cv2.warpAffine(img_bgr, M, (w, h), flags=cv2.INTER_CUBIC,
                          borderMode=cv2.BORDER_REPLICATE)
     return out, a
+
+
+_PREDICTOR = None
+
+
+def detect_rotation_fast(img_bgr: np.ndarray, device: str = "cuda") -> int:
+    """Page orientation from docTR's MobileNetV3 classifier (GPU, ~10 ms).
+
+    Class index = number of 90 degree clockwise turns needed to make the page
+    upright. Falls back to the OCR scoring path when the model is unavailable.
+    """
+    global _PREDICTOR
+    try:
+        if _PREDICTOR is None:
+            from doctr.models import page_orientation_predictor
+
+            _PREDICTOR = page_orientation_predictor(pretrained=True)
+            if device != "cpu":
+                _PREDICTOR.model = _PREDICTOR.model.to(device)
+        out = _PREDICTOR([cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)])
+        cls = int(np.asarray(out[0]).ravel()[0])
+        conf = float(np.asarray(out[2]).ravel()[0]) if len(out) > 2 else 1.0
+        if conf >= 0.6:
+            return (cls * 90) % 360
+    except Exception:
+        pass
+    return detect_rotation(img_bgr)

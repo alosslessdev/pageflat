@@ -8,13 +8,49 @@ import cv2
 import numpy as np
 
 
-def load_image(path: str | Path) -> np.ndarray:
-    """Load an image as BGR uint8, applying EXIF orientation."""
+def _jpeg_size(buf: np.ndarray) -> tuple[int, int] | None:
+    """Width/height from the JPEG SOF marker without decoding."""
+    if buf.size < 4 or buf[0] != 0xFF or buf[1] != 0xD8:
+        return None
+    i, n = 2, buf.size
+    while i + 9 < n:
+        if buf[i] != 0xFF:
+            i += 1
+            continue
+        marker = buf[i + 1]
+        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+            i += 2
+            continue
+        seglen = int(buf[i + 2]) << 8 | int(buf[i + 3])
+        if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                      0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+            h = int(buf[i + 5]) << 8 | int(buf[i + 6])
+            w = int(buf[i + 7]) << 8 | int(buf[i + 8])
+            return w, h
+        i += 2 + seglen
+    return None
+
+
+def load_image(path: str | Path, min_long_side: int = 0) -> np.ndarray:
+    """Load an image as BGR uint8, applying EXIF orientation.
+
+    With `min_long_side`, very large JPEGs are decoded at half or quarter scale
+    (libjpeg's DCT scaling) when the result still exceeds that size — decoding a
+    64 MP photo at full resolution costs ~2 s and is thrown away by the resize.
+    """
     path = str(path)
     with open(path, "rb") as fh:
         buf = np.frombuffer(fh.read(), dtype=np.uint8)
-    # decode without OpenCV's own EXIF rotation; fix_orientation applies it explicitly
-    img = cv2.imdecode(buf, cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
+    flags = cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION
+    if min_long_side:
+        size = _jpeg_size(buf)
+        if size:
+            long_side = max(size)
+            if long_side >= min_long_side * 4:
+                flags |= cv2.IMREAD_REDUCED_COLOR_4
+            elif long_side >= min_long_side * 2:
+                flags |= cv2.IMREAD_REDUCED_COLOR_2
+    img = cv2.imdecode(buf, flags)
     if img is None:
         raise ValueError(f"cannot decode {path}")
     return fix_orientation(buf, img, path)
