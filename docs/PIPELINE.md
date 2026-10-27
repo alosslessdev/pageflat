@@ -90,3 +90,28 @@ Two GPU workers do not fit in 6 GB together with the NVidia context; one GPU
 worker plus one CPU worker is the practical parallel setup. `grid_sample` is
 tiled in 512-row bands so the peak allocation is bounded by the source image
 rather than by the output.
+
+
+## Illumination: IllTr vs the quadratic surface
+
+DocTr ships `IllTr`, trained on DocProj to correct page shading. On this library
+it is *worse* than the classical quadratic-surface division: run as a gain map
+over 128 px patches it leaves visible block boundaries, and on a blown-out
+magazine cover it posterises the highlights. The classical path is kept as the
+default; `illuminate_gainmap` stays available (`--illum doctr`) for pages where
+the lighting is the dominant defect and DocProj-like shading is expected.
+
+## Routing segmentation with a decision model
+
+`pageflat/router.py` asks a decision model (Cloudflare Clef on llama-server,
+`--route-url`) to classify the scene before any pixel work:
+
+| route | strategy |
+|---|---|
+| `single` | DocTr mask alone — SAM would only slow it down |
+| `cluttered` | DocTr mask + SAM refinement (page on a bed sheet, on a table) |
+| `pile` | DocTr mask + SAM, topmost sheet |
+| `not_page` | rejected before segmentation |
+
+Without a server it falls back to a paper-colour heuristic, so the pipeline
+never depends on the model.
