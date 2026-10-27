@@ -59,6 +59,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--long-side", type=int, default=3508, help="output long side in px (3508 = A4@300dpi)")
     ap.add_argument("--no-split", action="store_true", help="keep two-page spreads together")
     ap.add_argument("--debug", action="store_true", help="save boundary overlays")
+    ap.add_argument("--route-url", default="",
+                    help="llama-server with a Clef model; routes each photo to a "
+                         "segmentation strategy and rejects non-pages early")
     ap.add_argument("--sam", action="store_true", help="refine the page mask with SAM (topmost sheet)")
     ap.add_argument("--sam-weights", default=str(Path(__file__).resolve().parents[1] / "weights" / "sam_vit_b.pth"))
     ap.add_argument("--device", default="cuda")
@@ -76,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         illum_mode=args.illum,
         split_spreads=not args.no_split,
         use_sam=args.sam,
+        route_url=args.route_url,
         save_debug=args.debug,
     )
 

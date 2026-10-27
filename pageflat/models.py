@@ -112,6 +112,37 @@ class DocTrPipeline:
         return out
 
     @torch.no_grad()
+    def illuminate_gainmap(self, img_bgr: np.ndarray, work_side: int = 512) -> np.ndarray:
+        """DocTr IllTr on a small copy, applied back as a gain map at full resolution.
+
+        Running the transformer over 128x128 patches of a 3508 px page means a
+        thousand forward passes; on a 512 px copy it is ~16, and the correction
+        is a smooth lighting field, so upsampling the gain is faithful.
+        """
+        h, w = img_bgr.shape[:2]
+        scale = min(1.0, work_side / float(max(h, w)))
+        small = cv2.resize(img_bgr, (max(64, int(w * scale)), max(64, int(h * scale))),
+                           interpolation=cv2.INTER_AREA)
+        corrected = self.illuminate(small) if False else self._illtr_pass(small)
+        gain = (corrected.astype(np.float32) + 1.0) / (small.astype(np.float32) + 1.0)
+        gain = cv2.resize(gain, (w, h), interpolation=cv2.INTER_CUBIC)
+        out = img_bgr.astype(np.float32) * gain
+        return np.clip(out, 0, 255).astype(np.uint8)
+
+    @torch.no_grad()
+    def _illtr_pass(self, img_bgr: np.ndarray, patch: int = 128) -> np.ndarray:
+        h, w = img_bgr.shape[:2]
+        ph, pw = min(patch, h), min(patch, w)
+        out = img_bgr.copy()
+        for y in range(0, h - ph + 1, ph):
+            for x in range(0, w - pw + 1, pw):
+                tile = img_bgr[y:y + ph, x:x + pw]
+                t = _to_tensor(tile[:, :, ::-1].astype(np.float32) / 255.0, self.device)
+                o = self.illtr(t)[0].permute(1, 2, 0).cpu().numpy()[:, :, ::-1] * 255.0
+                out[y:y + ph, x:x + pw] = np.clip(o, 0, 255).astype(np.uint8)
+        return out
+
+    @torch.no_grad()
     def illuminate(self, img_bgr: np.ndarray, patch: int = 128) -> np.ndarray:
         """DocTr illumination correction, patch-wise on 128x128 tiles."""
         h, w = img_bgr.shape[:2]

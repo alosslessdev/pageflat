@@ -13,7 +13,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from . import geom, illum, orientation, quality, spine
+from . import geom, illum, orientation, quality, router, spine
 from .io import load_image, resize_long_side
 
 
@@ -22,6 +22,7 @@ class Settings:
     scan_long_side: int = 3508          # A4 @ 300dpi
     mask_work_side: int = 1600
     use_sam: bool = False
+    route_url: str = ""            # llama-server with a Clef model, optional
     dewarp: str = "doctr"               # doctr | uvdoc | best | none
     illum_mode: str = "classical"       # classical | doctr | none
     split_spreads: bool = True
@@ -48,19 +49,22 @@ class PageResult:
     rotation: int = 0
     dewarp: str = ""
     content: dict = field(default_factory=dict)
+    route: str = ""
     pages: int = 0
     outputs: list = field(default_factory=list)
     elapsed_s: float = 0.0
 
 
-def detect_page(detector, img: np.ndarray, settings: Settings) -> Optional[geom.PageQuad]:
+def detect_page(detector, img: np.ndarray, settings: Settings,
+                use_sam: bool | None = None) -> Optional[geom.PageQuad]:
     small, scale = resize_long_side(img, settings.mask_work_side)
     mask = detector.page_mask(small)
     quad = geom.mask_to_quad(mask)
     if quad is None:
         return None
     sam = getattr(detector, "sam", None)
-    if settings.use_sam and sam is not None:
+    want_sam = settings.use_sam if use_sam is None else use_sam
+    if want_sam and sam is not None:
         pts = quad.points
         cx, cy = pts.mean(axis=0)
         x, y, w, h = cv2.boundingRect(pts.astype(np.int32))
@@ -133,7 +137,14 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
         return res
 
     try:
-        quad = detect_page(detector, img, settings)
+        route = None
+        if settings.route_url:
+            route = router.decide(img, settings.route_url)
+            res.route = route.kind
+            if route.kind == "not_page" and route.confidence >= 0.6:
+                res.status, res.reason = "rejected", "router: not a page"
+                return res
+        quad = detect_page(detector, img, settings, use_sam=settings.use_sam)
         if quad is None:
             res.status, res.reason = "rejected", "no page mask"
             return res
