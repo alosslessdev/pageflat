@@ -1,0 +1,16 @@
+pageflat bundles third-party model code and weights.
+
+1. DocTr (pageflat/vendor/doctr, weights/*.pth from the DocTr Hugging Face Space)
+   Copyright (c) Hao Feng, 2021-2024.
+   Licensed for NON-COMMERCIAL use only (academic research, personal study,
+   non-profit projects). Commercial use requires written permission from the
+   author. See https://github.com/fh2019ustc/DocTr/blob/main/LICENSE.md
+
+2. UVDoc, via the `py-reform` package (weights bundled in that wheel)
+   Copyright (c) Floor Verhoeven, Tanguy Magne, Olga Sorkine-Hornung.
+   MIT License. https://github.com/tanguymagne/UVDoc
+
+3. page_dewarp (reference implementation, not bundled)
+   Copyright (c) Matt Zucker. MIT License.
+
+Everything else in this repository is MIT (see LICENSE).

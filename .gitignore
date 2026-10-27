@@ -1,0 +1,7 @@
+.venv/
+weights/
+__pycache__/
+*.pyc
+scans/
+out/
+*.json
