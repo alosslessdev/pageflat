@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 from . import geom, gpu_ops, illum, orientation, quality, router, spine
+from . import lines, perspective
 from .io import load_image, resize_long_side
 
 
@@ -30,6 +31,13 @@ class Settings:
     split_spreads: bool = True
     auto_orient: bool = True
     deskew: bool = True
+    split_sheets: bool = True           # one homography per physical sheet
+    max_sheets: int = 3
+    quad_margin: float = 0.012          # expand each quad so paper edges survive
+    paper_reach: float = 0.0            # >0: reach past a crop that cut into the text
+    content_route: bool = False         # classify the page and pick a strategy
+    route_url: str = ""                 # clef (llama-server) endpoint for the classifier
+    line_straighten: bool = False       # word-line bow removal (needs reliable lines)
     save_debug: bool = False
     min_quad_area: float = 0.05
     min_rectangularity: float = 0.65
@@ -53,6 +61,8 @@ class PageResult:
     rotation: int = 0
     dewarp: str = ""
     content: dict = field(default_factory=dict)
+    lines: dict = field(default_factory=dict)
+    kind: str = ""                         # page type from the content classifier
     route: str = ""
     pages: int = 0
     outputs: list = field(default_factory=list)
@@ -91,6 +101,58 @@ def detect_page(detector, img: np.ndarray, settings: Settings,
     small, scale = resize_long_side(img, settings.mask_work_side)
     mask = detector.page_mask(small)
     return _quad_from_mask(detector, small, mask, scale, settings, img.shape, use_sam)
+
+
+def page_kind(rect: np.ndarray, settings: Settings) -> str:
+    """What kind of page this is, from the content classifier.
+
+    Returns ``"unknown"`` when routing is off or the classifier cannot answer,
+    and callers then keep the conservative behaviour.
+    """
+    if not settings.content_route:
+        return "unknown"
+    try:
+        from . import content
+        return content.classify(rect, url=settings.route_url or None).kind
+    except Exception:  # noqa: BLE001 - routing is an optimisation, never a hard dependency
+        return "unknown"
+
+
+def rectified_sheets(img: np.ndarray, detector, settings: Settings
+                     ) -> list[tuple[np.ndarray, np.ndarray, float, float]]:
+    """Perspective correction first: one homography per physical sheet.
+
+    Returns ``(rectified, quad, area_frac, rectangularity)`` per sheet. Two
+    sheets touching on the table used to share one hull quad, and the warp
+    then clipped whichever sheet sat further inside the hull.
+    """
+    small, scale = resize_long_side(img, settings.mask_work_side)
+    mask = detector.page_mask(small)
+    if not mask.any():
+        return []
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    if settings.split_sheets:
+        kind = page_kind(small, settings) if settings.content_route else "unknown"
+        parts = perspective.sheet_masks(small, mask, max_sheets=settings.max_sheets,
+                                        kind=kind)
+    else:
+        parts = [(mask >= 0.5).astype(np.uint8)]
+    out = []
+    for part in parts:
+        quad = geom.mask_to_quad(part)
+        if quad is None or not part.any():
+            continue
+        pts = geom.refine_quad(gray, quad.points, search_frac=0.02)
+        pts = (pts / scale).astype(np.float32)
+        # only reach past the mask when ink already touches it: that is a
+        # crop inside the page. A page with its margin intact needs nothing,
+        # and reaching out there drags in whatever lies next to it.
+        if settings.paper_reach > 0 and perspective.edge_has_ink(img, pts):
+            pts = perspective.extend_to_paper(img, pts, max_frac=settings.paper_reach)
+        pts = perspective.expand_quad(pts, settings.quad_margin, img.shape)
+        rect = perspective.warp_sheet(img, pts, max_side=settings.max_intermediate)
+        out.append((rect, pts, quad.area_frac, quad.rectangularity))
+    return out
 
 
 def trim_background(img_bgr: np.ndarray, min_removed: float = 0.03) -> np.ndarray:
@@ -406,78 +468,98 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
             if route.kind == "not_page" and route.confidence >= 0.6:
                 res.status, res.reason = "rejected", "router: not a page"
                 return res
-        quad = detect_page(detector, img, settings, use_sam=settings.use_sam)
-        if quad is None:
+        sheets = rectified_sheets(img, detector, settings)
+        if not sheets:
             res.status, res.reason = "rejected", "no page mask"
             return res
-        res.quad = quad.points.round(2).tolist()
-        res.area_frac = round(quad.area_frac, 4)
-        res.rectangularity = round(quad.rectangularity, 4)
-        if quad.area_frac < settings.min_quad_area:
+        first = sheets[0]
+        res.quad = first[1].round(2).tolist()
+        res.area_frac = round(first[2], 4)
+        res.rectangularity = round(first[3], 4)
+        if first[2] < settings.min_quad_area:
             res.status, res.reason = "rejected", "page too small in frame"
             return res
-        if quad.rectangularity < settings.min_rectangularity:
+        if first[3] < settings.min_rectangularity:
             res.status, res.reason = "rejected", "boundary not page-like"
             return res
 
-        rect = geom.warp_quad(img, quad.points, max_side=settings.max_intermediate)
+        outputs: list[tuple[np.ndarray, int, int]] = []
+        for s_idx, (rect, quad_pts, _af, _rq) in enumerate(sheets):
+            if settings.auto_orient:
+                angle = orientation.detect_rotation_fast(rect, device=str(detector.device))
+                if angle == 90:
+                    rect = cv2.rotate(rect, cv2.ROTATE_90_CLOCKWISE)
+                elif angle == 180:
+                    rect = cv2.rotate(rect, cv2.ROTATE_180)
+                elif angle == 270:
+                    rect = cv2.rotate(rect, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                res.rotation = angle
 
-        if settings.auto_orient:
-            angle = orientation.detect_rotation_fast(rect, device=str(detector.device))
-            if angle == 90:
-                rect = cv2.rotate(rect, cv2.ROTATE_90_CLOCKWISE)
-            elif angle == 180:
-                rect = cv2.rotate(rect, cv2.ROTATE_180)
-            elif angle == 270:
-                rect = cv2.rotate(rect, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            res.rotation = angle
+            if settings.dewarp == "doctr":
+                rect = detector.rectify(rect)
+                res.dewarp = "doctr"
+            elif settings.dewarp == "uvdoc":
+                from .models import UVDocDewarper
+                rect = UVDocDewarper().rectify(rect)
+                res.dewarp = "uvdoc"
+            elif settings.dewarp == "best":
+                from .models import UVDocDewarper
+                cand_a = detector.rectify(rect)
+                cand_b = UVDocDewarper().rectify(rect)
+                qa, qb = ocr_quality(cand_a), ocr_quality(cand_b)
+                res.dewarp = "doctr" if qa >= qb else "uvdoc"
+                rect = cand_a if qa >= qb else cand_b
 
-        if settings.dewarp == "doctr":
-            rect = detector.rectify(rect)
-            res.dewarp = "doctr"
-        elif settings.dewarp == "uvdoc":
-            from .models import UVDocDewarper
-            rect = UVDocDewarper().rectify(rect)
-            res.dewarp = "uvdoc"
-        elif settings.dewarp == "best":
-            from .models import UVDocDewarper
-            cand_a = detector.rectify(rect)
-            cand_b = UVDocDewarper().rectify(rect)
-            qa, qb = ocr_quality(cand_a), ocr_quality(cand_b)
-            res.dewarp = "doctr" if qa >= qb else "uvdoc"
-            rect = cand_a if qa >= qb else cand_b
+            if settings.deskew:
+                rect, _ = orientation.deskew(rect, max_angle=10.0)
 
-        if settings.deskew:
-            rect, _ = orientation.deskew(rect, max_angle=10.0)
+            # the sheet is flat now; what is left is the paper's own bow, which
+            # only the text lines can measure — and a picture has no lines to
+            # measure, so the grid must not be forced onto it
+            kind = page_kind(rect, settings)
+            res.kind = kind
+            if settings.line_straighten and kind != "graphic":
+                rect, line_info = lines.unwarp(rect)
+                res.lines = line_info
 
-        if settings.illum_mode == "doctr":
-            rect = detector.illuminate(rect)
+            if settings.illum_mode == "doctr":
+                rect = detector.illuminate(rect)
 
-        # saturated background (bed sheet, table cloth) that survived segmentation
-        if settings.trim_background:
-            rect = trim_background(rect)
+            # saturated background (bed sheet, table cloth) that survived segmentation
+            if settings.trim_background:
+                rect = trim_background(rect)
 
-        # split before flattening: the gutter shadow is what identifies a spine
-        pages = spine.split_spread(rect) if settings.split_spreads else [rect]
-        kept = []
-        for page in pages:
-            surface_ok, m_surface = quality.surface_checks(page, max_texture=settings.max_texture,
-                                                           min_paper=settings.min_paper)
-            if settings.illum_mode == "classical":
-                page = illum.scan_finish(page)
-            elif settings.illum_mode == "doctr":
-                page = illum.auto_contrast(page)
-            content_ok, m_content = quality.content_checks(page, settings.min_ink, settings.min_lines)
-            res.content = {**m_surface, **m_content}
-            if surface_ok and content_ok:
-                kept.append(page)
-        if not kept:
+            # spreads were already split at the gutter, before the warp, so each
+            # page got its own homography; splitting again here only re-cuts
+            # pages whose shadow happens to look like a spine
+            split_here = settings.split_spreads and not settings.split_sheets
+            pages = spine.split_spread(rect) if split_here else [rect]
+            kept = []
+            for page in pages:
+                surface_ok, m_surface = quality.surface_checks(
+                    page, max_texture=settings.max_texture, min_paper=settings.min_paper)
+                if settings.illum_mode == "classical":
+                    page = illum.scan_finish(page)
+                elif settings.illum_mode == "doctr":
+                    page = illum.auto_contrast(page)
+                content_ok, m_content = quality.content_checks(page, settings.min_ink,
+                                                               settings.min_lines)
+                res.content = {**m_surface, **m_content}
+                if surface_ok and content_ok:
+                    kept.append(page)
+            for i, page in enumerate(kept):
+                outputs.append((page, s_idx, i if len(kept) > 1 else -1))
+        if not outputs:
             res.status, res.reason = "rejected", res.reason or "no page content (ink/lines/paper)"
             return res
-        pages = kept
-        for i, page in enumerate(pages):
+        multi_sheet = len(sheets) > 1
+        for page, s_idx, p_idx in outputs:
             page = _finish_size(page, settings.scan_long_side)
-            suffix = "" if len(pages) == 1 else f"_p{i + 1}"
+            suffix = ""
+            if multi_sheet:
+                suffix += f"_s{s_idx + 1}"
+            if p_idx >= 0:
+                suffix += f"_p{p_idx + 1}"
             out_path = out_dir / f"{path.stem}{suffix}.png"
             if out_path.exists():
                 tag = hashlib.sha1(str(path).encode()).hexdigest()[:6]
@@ -486,10 +568,11 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
             res.outputs.append(str(out_path))
             if settings.save_debug:
                 dbg = img.copy()
-                cv2.polylines(dbg, [quad.points.astype(np.int32)], True, (0, 0, 255), 12)
+                q = sheets[s_idx][1]
+                cv2.polylines(dbg, [q.astype(np.int32)], True, (0, 0, 255), 12)
                 cv2.imwrite(str(out_dir / f"{path.stem}{suffix}_debug.jpg"), dbg,
                             [cv2.IMWRITE_JPEG_QUALITY, 80])
-        res.pages = len(pages)
+        res.pages = len(outputs)
         res.status = "ok"
     except Exception as exc:  # noqa: BLE001
         res.status, res.reason = "error", repr(exc)

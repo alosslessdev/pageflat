@@ -66,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--long-side", type=int, default=3508, help="output long side in px (3508 = A4@300dpi)")
     ap.add_argument("--no-split", action="store_true", help="keep two-page spreads together")
     ap.add_argument("--debug", action="store_true", help="save boundary overlays")
+    ap.add_argument("--paper-reach", type=float, default=0.0,
+                    help="reach past a crop that cut into the text (fraction of edge length)")
+    ap.add_argument("--content-route", action="store_true",
+                    help="classify each page and pick the strategy (clef when --route-url is set)")
     ap.add_argument("--route-url", default="",
                     help="llama-server with a Clef model; routes each photo to a "
                          "segmentation strategy and rejects non-pages early")
@@ -92,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
         split_spreads=not args.no_split,
         use_sam=args.sam,
         route_url=args.route_url,
+        content_route=args.content_route,
+        paper_reach=args.paper_reach,
         save_debug=args.debug,
         gpu_path=args.gpu_path,
         gpu_batch=max(1, args.gpu_batch),

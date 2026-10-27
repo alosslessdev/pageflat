@@ -121,3 +121,61 @@ def split_spread(img_bgr: np.ndarray, x: Optional[int] = None,
         return [img_bgr]
     bounds = [0] + sorted(accepted) + [w]
     return [img_bgr[:, a:b] for a, b in zip(bounds, bounds[1:])]
+
+
+def trace_spine(img_bgr: np.ndarray, expected_x: Optional[int] = None,
+                band_frac: float = 0.12, step: int = 4) -> Optional[np.ndarray]:
+    """Follow the gutter down the page: one x per row, or None.
+
+    The spine of a book is a straight line in the world. Once the spread is
+    rectified, whatever wander is left in that dark band is residual rotation
+    and curl, so tracing it gives a per-row correction the homography could
+    not express.
+    """
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    h, w = gray.shape
+    cx = w // 2 if expected_x is None else int(expected_x)
+    band = max(6, int(band_frac * w))
+    lo, hi = max(1, cx - band), min(w - 1, cx + band)
+    if hi - lo < 4:
+        return None
+    rows = np.arange(0, h, step)
+    xs = np.full(rows.size, np.nan)
+    k = max(3, w // 200 | 1)
+    for i, y in enumerate(rows):
+        strip = gray[y:y + step, lo:hi].mean(axis=0)
+        if strip.size < 4:
+            continue
+        smooth = cv2.GaussianBlur(strip.reshape(1, -1), (k, 1), 0).ravel()
+        j = int(np.argmin(smooth))
+        shoulder = float(np.median(smooth))
+        if shoulder - smooth[j] < 4.0:      # no shadow at this row
+            continue
+        xs[i] = lo + j
+    if np.isnan(xs).mean() > 0.5:
+        return None
+    ok = ~np.isnan(xs)
+    xs = np.interp(rows, rows[ok], xs[ok])
+    xs = cv2.GaussianBlur(xs.reshape(-1, 1), (1, max(3, rows.size // 20 | 1)), 0).ravel()
+    return xs
+
+
+def align_to_spine(img_bgr: np.ndarray, curve: Optional[np.ndarray] = None,
+                   step: int = 4) -> tuple[np.ndarray, dict]:
+    """Shear rows so the traced spine becomes a vertical line."""
+    h, w = img_bgr.shape[:2]
+    if curve is None:
+        curve = trace_spine(img_bgr)
+    if curve is None:
+        return img_bgr, {"spine": False}
+    rows = np.arange(0, h, step)[: curve.size]
+    if curve.size != rows.size:
+        return img_bgr, {"spine": False}
+    full = np.interp(np.arange(h), rows, curve)
+    shift = float(np.median(full)) - full
+    if float(np.abs(shift).max()) < 2.0:
+        return img_bgr, {"spine": True, "drift": round(float(np.abs(shift).max()), 1)}
+    xs, ys = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    map_x = np.clip(xs + shift[:, None].astype(np.float32), 0, w - 1)
+    out = cv2.remap(img_bgr, map_x, ys, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    return out, {"spine": True, "drift": round(float(np.abs(shift).max()), 1)}
