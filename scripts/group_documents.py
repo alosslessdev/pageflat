@@ -207,6 +207,8 @@ def split_session(session: list[dict], ocr_dir: Path | None = None,
     vecs = _page_vectors(session, ocr_dir) if ocr_dir is not None else [None] * len(session)
     docs: list[list[dict]] = []
     cur: list[dict] = []
+    window: list[dict] = []          # vectors of the recent pages
+    sims: list[float] = []           # page-to-window similarities seen so far
     for page, vec in zip(session, vecs):
         starts = False
         if cur:
@@ -215,13 +217,26 @@ def split_session(session: list[dict], ocr_dir: Path | None = None,
                 (page.get("number") == 1 and (prev.get("number") or 0) > 1)
                 or (page.get("cover") and not prev.get("cover"))
             )
-            if not starts and vec is not None and vecs[len(cur) - 1] is not None:
-                if _cos(vecs[len(cur) - 1], vec) < topic_threshold:
+            if not starts and vec is not None and len(window) >= 3 and len(cur) >= 10:
+                centroid: dict[str, float] = {}
+                for w in window[-5:]:
+                    for k, v in w.items():
+                        centroid[k] = centroid.get(k, 0.0) + v
+                sim = _cos(centroid, vec)
+                sims.append(sim)
+                typical = sorted(sims)[len(sims) // 2]
+                # a different publication: the page shares far less vocabulary
+                # than the pages of this document have so far
+                if typical > 0 and sim < 0.35 * typical:
                     starts = True
+                    sims.clear()
         if starts:
             docs.append(cur)
             cur = []
+            window = []
         cur.append(page)
+        if vec is not None:
+            window.append(vec)
     if cur:
         docs.append(cur)
     return docs
