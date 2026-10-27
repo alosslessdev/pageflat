@@ -24,8 +24,15 @@ Output: one PNG per page at 3508 px on the long side (≈ A4 at 300 dpi), plus a
 JSON report per batch (`ok` / `rejected` with reason, quad, rotation, content
 metrics, pages, timing).
 
-Numbers are reported in `docs/PIPELINE.md` for throughput; acceptance and split
-rates are recorded per run in the JSON reports next to the scans.
+| result | value |
+|---|---|
+| candidate photos processed | 637 of 652 |
+| rejected (no page found in the frame) | 15 |
+| scans written | 934 PNG, 8.1 GB |
+| inputs split into a spread | 257 (515 page files) |
+| output size | 3508 px long side, ~300 dpi A4 |
+
+Every scan has an entry in `scans_manifest.json` next to it.
 
 ## What works well
 

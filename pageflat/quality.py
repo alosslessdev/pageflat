@@ -56,7 +56,7 @@ def paper_fraction(img_bgr: np.ndarray, max_side: int = 900) -> float:
     return float(((hsv[:, :, 1] < 70) & (hsv[:, :, 2] > 140)).mean())
 
 
-def surface_checks(img_bgr: np.ndarray, max_texture: float = 14.0,
+def surface_checks(img_bgr: np.ndarray, max_texture: float = 30.0,
                    min_paper: float = 0.45) -> tuple[bool, dict]:
     """Paper-surface tests. Run these BEFORE illumination flattening, which
     normalises away exactly the colour and texture cues they rely on."""
@@ -75,7 +75,7 @@ def content_checks(img_bgr: np.ndarray, min_ink: float = 0.0025,
 
 
 def looks_like_page(img_bgr: np.ndarray, min_ink: float = 0.0025,
-                    min_lines: int = 3, max_texture: float = 14.0,
+                    min_lines: int = 3, max_texture: float = 30.0,
                     min_paper: float = 0.45) -> tuple[bool, dict]:
     """Convenience wrapper for images that are already final (no separate surface pass)."""
     ok_s, m1 = surface_checks(img_bgr, max_texture, min_paper)

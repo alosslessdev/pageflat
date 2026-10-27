@@ -32,7 +32,7 @@ class Settings:
     min_rectangularity: float = 0.65
     min_ink: float = 0.0025
     min_lines: int = 3
-    max_texture: float = 14.0
+    max_texture: float = 30.0
     min_paper: float = 0.45
     max_intermediate: int = 4200
 
