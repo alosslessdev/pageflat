@@ -118,6 +118,33 @@ that drops coloured surroundings.
   the detected baselines are already flat to ~1.5 px, and further warping only
   adds interpolation noise.
 
+## From scans to documents
+
+```bash
+# 1. flat scans (above)
+# 2. OCR every scan: text + word boxes (searchable PDFs need the boxes)
+python scripts/ocr_scans.py scans/ --workers 4
+
+# 3. group pages into documents and order them
+python scripts/group_documents.py scans/ocr --out documents.json \
+    --llm http://127.0.0.1:8100        # optional: small instruct model adjudicates
+                                       # ambiguous boundaries
+
+# 4. one searchable PDF per document (image + invisible text layer)
+python scripts/build_pdfs.py documents.json scans/ --out scans/pdfs
+```
+
+Grouping is driven by what the pages say about themselves: a page number in the
+first or last line (`12`, `- 12 -`, `Página 12`, `12 of 40`), header similarity
+between consecutive pages, capture-session gaps, and a hard split when numbering
+restarts. When a boundary is ambiguous the optional `--llm` asks a small local
+model (Qwen3-4B or LFM2.5 on llama-server) whether the two pages belong
+together.
+
+`scripts/clef_cleanup.py` is an optional cleanup stage: Cloudflare's Clef
+decision model (served by llama-server with `--mmproj`) scores each finished
+scan as page/not-page and moves the rejects to `_nonpage/`.
+
 ## Results on a real library
 
 243 858 JPEGs scanned → 5 600 files at ≥ 60 MP → 652 flagged as page photos;
