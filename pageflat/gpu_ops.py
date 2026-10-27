@@ -181,28 +181,27 @@ def page_masks(detector, images, size: int = 512, *,
 
 @torch.no_grad()
 def page_flow_small(detector, pages, *,
-                    device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
-    """DocTr backward flow for a batch of pages, in the 288 px space.
+                    device: Optional[Union[str, torch.device]] = None) -> list[torch.Tensor]:
+    """DocTr backward flow per page in the 288 px space, one forward at a time.
 
-    Equivalent to the front half of ``DocTrPipeline.geo_flow`` without the host
-    round trip: one U2NETP + GeoTr pass over the batch, returning ``(N, 2, 288,
-    288)``.  ``flow_grid`` turns one slice into a grid_sample grid, which keeps
-    the full-resolution grids (tens of MB each) from piling up in VRAM.
+    Bit-identical to the front half of ``DocTrPipeline.geo_flow``: same INTER_AREA
+    input, same tensor layout, same single-image forward.  Both matter -- U2NETP
+    rescales by the min/max of the whole batch, and GeoTr's cuDNN path changes
+    with the input layout (measured: 1.2 px in the 288 px flow for a channels-last
+    or batched input), which is ~0.5 px of sampling error at the page edge.
+    ``flow_grid`` then does the full-resolution upsample on the device.
     """
     dev = _resolve(device)
-    xs = []
+    out = []
     for page in pages:
-        # 288 px input exactly as DocTrPipeline.geo_flow builds it: INTER_AREA on
-        # the host, then RGB in 0..1.  A different resampler here shifts the flow
-        # by ~1e-3, which is several pixels of sampling error at the page edge.
         arr = _as_numpy(page)
         small = cv2.resize(arr, (288, 288), interpolation=cv2.INTER_AREA)
         x = torch.from_numpy(small[:, :, ::-1].astype(np.float32) / 255.0)
-        xs.append(x.permute(2, 0, 1).to(dev).unsqueeze(0))
-    x = torch.cat(xs, dim=0)
-    msk = (detector.seg(x)[0] > 0.5).float()
-    bm = detector.geotr(msk * x)                            # (N, 2, 288, 288)
-    return (2.0 * (bm / 286.8) - 1.0) * 0.99
+        x = x.permute(2, 0, 1).to(dev).unsqueeze(0)
+        msk = (detector.seg(x)[0] > 0.5).float()
+        bm = detector.geotr(msk * x)[0]
+        out.append((2.0 * (bm / 286.8) - 1.0) * 0.99)
+    return out
 
 
 def flow_grid(flow: torch.Tensor, height: int, width: int) -> torch.Tensor:

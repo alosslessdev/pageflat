@@ -277,11 +277,11 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
         # only a single full-resolution grid and source tensor are ever resident
         doctr = [s for s in ready if settings.dewarp == "doctr"]
         if doctr:
-            flow = gpu_ops.page_flow_small(detector, [s["rect"] for s in doctr])
-            for i, s in enumerate(doctr):
+            flows = gpu_ops.page_flow_small(detector, [s["rect"] for s in doctr])
+            for flow, s in zip(flows, doctr):
                 try:
                     h, w = s["rect"].shape[:2]
-                    grid = gpu_ops.flow_grid(flow[i], h, w)
+                    grid = gpu_ops.flow_grid(flow, h, w)
                     # numpy in, numpy out: the tail below is all cv2
                     s["rect"] = gpu_ops.dewarp_page(s["rect"], grid)
                     s["res"].dewarp = "doctr"
@@ -289,7 +289,7 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                 except Exception as exc:  # noqa: BLE001
                     s["rect"] = None
                     s["res"].status, s["res"].reason = "error", repr(exc)
-            del flow
+            del flows
         for s in ready:
             if settings.dewarp == "doctr":
                 continue
