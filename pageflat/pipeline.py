@@ -282,10 +282,10 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                 try:
                     h, w = s["rect"].shape[:2]
                     grid = gpu_ops.flow_grid(flow[i], h, w)
-                    t = torch.from_numpy(np.ascontiguousarray(s["rect"])).to(dev)
-                    s["rect"] = gpu_ops.dewarp_page(t, grid)
+                    # numpy in, numpy out: the tail below is all cv2
+                    s["rect"] = gpu_ops.dewarp_page(s["rect"], grid)
                     s["res"].dewarp = "doctr"
-                    del t, grid
+                    del grid
                 except Exception as exc:  # noqa: BLE001
                     s["rect"] = None
                     s["res"].status, s["res"].reason = "error", repr(exc)
