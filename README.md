@@ -138,5 +138,5 @@ independent audit and what was changed in response.
 * Liu et al., *BookNet: Book Image Rectification via Cross-Page Attention Network*, 2026.
 
 Licences of the borrowed models/code remain with their authors (MIT for UVDoc and
-page_dewarp, research licences for DocTr/BookNet). This software includes DocTR technology for non-commercial use. 
+page_dewarp, research licences for DocTr/BookNet). This software includes DocTR technology https://github.com/fh2019ustc/DocTr for non-commercial use. 
 
