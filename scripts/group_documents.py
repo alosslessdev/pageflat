@@ -373,6 +373,30 @@ def _cover_score(scan_dir: Path | None, name: str) -> bool:
     return colourful > 0.35
 
 
+def split_on_covers(docs: list[list[dict]], scan_dir: Path, min_pages: int = 20) -> list[list[dict]]:
+    """Second pass: a document that contains several covers is several documents.
+
+    Cheap because only documents longer than `min_pages` are inspected, and only
+    their first page of every run of pages is read.
+    """
+    out: list[list[dict]] = []
+    for doc in docs:
+        if len(doc) < min_pages:
+            out.append(doc)
+            continue
+        cur: list[dict] = []
+        for page in doc:
+            is_cover = _cover_score(scan_dir, page["file"])
+            page["cover"] = is_cover
+            if is_cover and len(cur) > 2:
+                out.append(cur)
+                cur = []
+            cur.append(page)
+        if cur:
+            out.append(cur)
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("ocr_dir")
@@ -385,6 +409,8 @@ def main(argv=None) -> int:
     ap.add_argument("--scan-dir", default=None, help="scan directory (enables cover detection)")
     ap.add_argument("--session-gap-hours", type=float, default=24.0,
                     help="a pause longer than this starts a new session (documents never span a day)")
+    ap.add_argument("--split-covers", type=int, default=0, metavar="MIN_PAGES",
+                    help="after grouping, split documents longer than MIN_PAGES at cover pages")
     ap.add_argument("--sessions", action="store_true",
                     help="group wholesale capture bursts as documents (books, magazines)")
     ap.add_argument("--merge-similar", type=float, default=0.0,
@@ -405,6 +431,8 @@ def main(argv=None) -> int:
     else:
         docs = group(pages, args.threshold, args.gap_minutes, args.llm,
                      args.embed_url, args.embed_threshold)
+    if args.split_covers and args.scan_dir:
+        docs = split_on_covers(docs, Path(args.scan_dir), args.split_covers)
     if args.merge_similar > 0:
         docs = merge_similar(docs, Path(args.ocr_dir), args.merge_similar)
     out = []
