@@ -25,7 +25,10 @@ whose spine is visible, and pages photographed upside down.
    same class, so piles and overlapping sheets merge. Pointed at the page of
    interest, SAM follows the boundary of the *topmost* object; the smallest
    confident mask containing the point wins, which resolves "card on a bed
-   sheet" cases that the page model alone cannot.
+   sheet" and "newspaper on a pile of coloured paper" cases that the page model
+   alone cannot. `sam_vit_b.pth` is the default; MobileSAM (`--sam-weights
+   weights/mobile_sam.pt`) gives the same masks at a tenth of the VRAM and a
+   tenth of the time.
 4. **Boundary estimation and perspective correction** — the mask is reduced to a
    quadrilateral (convex hull → `approxPolyDP`, minimum-area rectangle fallback)
    and then *edge-snapped*: every side is re-fitted to the strongest nearby
@@ -84,7 +87,11 @@ Options: `--dewarp {doctr,uvdoc,best,none}`, `--illum {classical,doctr,none}`,
 `--sam`, `--long-side`, `--no-split`, `--debug`, `--json`, `--workers`.
 
 After a batch, `scripts/finalize_scans.py` re-checks finished scans, splits any
-spreads that were left whole, and writes a manifest.
+spreads that were left whole, and writes a manifest. `scripts/refine_scan.py`
+applies the two residual fixes that the learned rectifier does not cover:
+text-line straightening (robust low-order fit of detected baselines, applied
+only when the measured wobble exceeds 1% of the page height) and a paper crop
+that drops coloured surroundings.
 
 ## Output contract
 
@@ -102,6 +109,9 @@ spreads that were left whole, and writes a manifest.
   text-line-based refinement is not yet part of the pipeline.
 * Handwriting on blank paper carries no geometric cue, so dewarping relies
   entirely on the learned flow model.
+* Residual curvature below ~1% of the page height is left alone: on real scans
+  the detected baselines are already flat to ~1.5 px, and further warping only
+  adds interpolation noise.
 
 ## References
 

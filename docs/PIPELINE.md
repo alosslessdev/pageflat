@@ -52,6 +52,12 @@ consequences:
   contains the point and is contained in the prior is the topmost sheet, which
   is what the photographer was aiming at.
 
+  On a 6 GB laptop GPU shared with another process, SAM ViT-B (1024x1024
+  encoder) does not fit next to DocTr — its encoder allocates ~1.5 GB regardless
+  of the input size passed in. MobileSAM (`vit_t`) produces equivalent page
+  masks here in 0.3 s and fits comfortably, on GPU or CPU. That is the default
+  for batch work; ViT-B stays available for difficult frames.
+
 ## Dewarping quality
 
 Observed on this library:
@@ -75,8 +81,9 @@ On this machine (RTX 3060 Laptop, 6 GB, partially occupied by another process,
 
 | configuration | time per image |
 |---|---|
-| DocTr on GPU, 3508 px output | ~16 s |
-| DocTr on CPU | ~18 s |
+| DocTr + MobileSAM, GPU, 3508 px output | ~8 s |
+| DocTr + MobileSAM, CPU (3 threads) | ~20 s |
+| DocTr without SAM, GPU | ~5 s |
 | illumination before the quadratic-surface rewrite | +38 s |
 
 Two GPU workers do not fit in 6 GB together with the NVidia context; one GPU
