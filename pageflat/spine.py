@@ -91,24 +91,33 @@ def content_crosses_spine(img_bgr: np.ndarray, x: int, band: int | None = None,
 
 def split_spread(img_bgr: np.ndarray, x: Optional[int] = None,
                  min_width_frac: float = 0.15) -> list[np.ndarray]:
-    """Cut a spread at every detected gutter; returns one or more pages."""
+    """Cut a spread at the gutters that keep every piece page-shaped."""
     h, w = img_bgr.shape[:2]
-    cuts: list[int] = []
     if x is not None:
-        cuts = [] if content_crosses_spine(img_bgr, x) else [x]
+        candidates = [] if content_crosses_spine(img_bgr, x) else [(x, 0.0)]
     else:
-        for gx, _ in _gutter_candidates(img_bgr):
-            if content_crosses_spine(img_bgr, gx):
-                continue
-            if all(abs(gx - c) > 0.12 * w for c in cuts):
-                cuts.append(gx)
-    if not cuts:
+        candidates = [(gx, strength) for gx, strength in _gutter_candidates(img_bgr)
+                      if not content_crosses_spine(img_bgr, gx)]
+    if not candidates:
         return [img_bgr]
-    cuts.sort()
-    bounds = [0] + cuts + [w]
-    pages = []
-    for a, b in zip(bounds, bounds[1:]):
-        if (b - a) < min_width_frac * w:
+
+    accepted: list[int] = []
+    for gx, _ in sorted(candidates, key=lambda t: -t[1]):
+        if any(abs(gx - c) < 0.12 * w for c in accepted):
             continue
-        pages.append(img_bgr[:, a:b])
-    return pages if len(pages) > 1 else [img_bgr]
+        trial = sorted(accepted + [gx])
+        bounds = [0] + trial + [w]
+        widths = [b - a for a, b in zip(bounds, bounds[1:])]
+        if min(widths) < min_width_frac * w:
+            continue
+        aspects = [wd / float(h) for wd in widths]
+        if min(aspects) < 0.35 or max(aspects) > 2.5:
+            continue
+        if max(widths) / float(min(widths)) > 1.6:
+            continue
+        accepted.append(gx)
+
+    if not accepted:
+        return [img_bgr]
+    bounds = [0] + sorted(accepted) + [w]
+    return [img_bgr[:, a:b] for a, b in zip(bounds, bounds[1:])]
