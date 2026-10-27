@@ -22,35 +22,40 @@ def _column_profile(img_bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 def _gutter_candidates(img_bgr: np.ndarray, lo_frac: float = 0.15,
                        hi_frac: float = 0.85) -> list[tuple[int, float]]:
-    """Dark shadow bands that look like a book gutter, strongest first."""
+    """Shadow bands that look like a book gutter, strongest first.
+
+    The column-darkness profile is compared against a wide moving baseline, so
+    an unevenly lit book (one side in shadow) does not hide the gutter.
+    """
     h, w = img_bgr.shape[:2]
-    if w / float(h) < 1.0:
+    if w / float(h) < 0.85:
         return []
     dark, edge = _column_profile(img_bgr)
     lo, hi = int(lo_frac * w), int(hi_frac * w)
     if hi - lo < 20:
         return []
-    cost = dark - 0.15 * edge
+    k = max(9, int(0.15 * w) | 1)
+    base = cv2.blur(dark.reshape(1, -1), (k, 1)).ravel()
+    resid = dark - base
     out: list[tuple[int, float]] = []
-    work = cost.copy()
+    work = resid.copy()
     for _ in range(4):
         idx = int(np.argmax(work[lo:hi]))
         x = lo + idx
-        peak = float(dark[x])
+        peak = float(work[x])
+        if peak < 3.0:
+            break
         half = peak * 0.5
         left = x
-        while left > lo and dark[left] > half:
+        while left > lo and resid[left] > half:
             left -= 1
         right = x
-        while right < hi - 1 and dark[right] > half:
+        while right < hi - 1 and resid[right] > half:
             right += 1
         band_width = right - left
-        local = np.concatenate([dark[max(0, x - 40):max(0, x - band_width)],
-                                dark[min(w, x + band_width):min(w, x + 40)]])
-        if band_width >= max(3, 0.004 * w) and local.size >= 5 and \
-                peak - float(np.median(local)) >= 10.0:
-            out.append((x, peak - float(np.median(local))))
-        work[max(lo, x - int(0.08 * w)):min(hi, x + int(0.08 * w))] = -1e9
+        if band_width >= max(3, 0.003 * w):
+            out.append((x, peak))
+        work[max(0, x - int(0.06 * w)):min(w, x + int(0.06 * w))] = -1e9
     return out
 
 
