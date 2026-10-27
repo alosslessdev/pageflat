@@ -60,7 +60,7 @@ def _osd_rotation(img_bgr: np.ndarray) -> int | None:
 def _ocr_score(img_bgr: np.ndarray) -> float:
     """Sum of confident word scores (0 when there is no machine-readable text)."""
     h, w = img_bgr.shape[:2]
-    scale = min(1.0, 1200.0 / max(h, w))
+    scale = min(1.0, 700.0 / max(h, w))
     small = cv2.resize(img_bgr, (int(w * scale), int(h * scale)),
                        interpolation=cv2.INTER_AREA) if scale < 1 else img_bgr
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as fh:
