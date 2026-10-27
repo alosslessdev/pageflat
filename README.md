@@ -64,7 +64,8 @@ whose spine is visible, and pages photographed upside down.
 ```bash
 git clone https://github.com/alosslessdev/pageflat && cd pageflat
 uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
-bash scripts/download_weights.sh          # DocTr seg/GeoTr/IllTr weights
+bash scripts/download_weights.sh          # DocTr + MobileSAM weights
+# WITH_SAM_VIT_B=1 bash scripts/download_weights.sh   # also fetch full SAM ViT-B
 ```
 
 `tesseract` must be on `PATH` (orientation, quality selection). A CUDA GPU is
@@ -77,7 +78,8 @@ used when available; inference is tiled so a 6 GB card is enough.
 python scripts/find_pages.py /run/media/phone --min-mp 60 --out pages.jsonl
 
 # flatten them
-python -m pageflat.cli --list pages.jsonl -o scans --dewarp doctr --sam --workers 1
+python -m pageflat.cli --list pages.jsonl -o scans --dewarp doctr \
+    --sam --sam-weights weights/mobile_sam.pt --workers 1
 
 # single file, with the boundary overlay for debugging
 python -m pageflat.cli photo.jpg -o scans --debug
