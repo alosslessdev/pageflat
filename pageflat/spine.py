@@ -46,23 +46,23 @@ def find_spine_x(img_bgr: np.ndarray, search=(0.35, 0.65)) -> Optional[int]:
 
 
 def content_crosses_spine(img_bgr: np.ndarray, x: int, band: int = 12,
-                          ink_delta: float = 25.0) -> bool:
-    """True when ink runs continuously up to the gutter on both sides.
+                          white_frac: float = 0.18) -> bool:
+    """True when a picture appears to run across the gutter.
 
-    Comparing rows just outside the gutter (rather than inside it) keeps the
-    gutter's own shadow from counting as content.
+    Two facing pages of text nearly always keep a light margin next to the
+    gutter; a photograph or illustration that spans the spine does not. So the
+    seam is treated as "crossed" when there is almost no paper-white next to it.
     """
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
     h, w = gray.shape
-    bg = float(np.median(gray))
-    left = max(0, x - band - 2)
-    right = min(w - 1, x + band + 2)
-    if right - left < 4:
+    x0 = max(0, x - band)
+    x1 = min(w, x + band + 1)
+    strip = gray[:, x0:x1]
+    if strip.size == 0:
         return False
-    dark_l = gray[:, left] < bg - ink_delta
-    dark_r = gray[:, right] < bg - ink_delta
-    overlap = float((dark_l & dark_r).sum()) / max(1, h)
-    return overlap > 0.02
+    bg = float(np.percentile(gray, 90))
+    near_white = float((strip > 0.82 * bg).mean())
+    return near_white < white_frac
 
 
 def split_spread(img_bgr: np.ndarray, x: Optional[int] = None,

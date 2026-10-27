@@ -44,6 +44,14 @@ def test_illumination_flattening_removes_vignette():
     assert max(corners) - min(corners) < 12
 
 
+def test_spanning_artwork_is_not_split():
+    page = np.full((400, 800, 3), 245, np.uint8)
+    # a full-bleed picture crossing the spine: no paper-white near the gutter
+    page[15:385, 60:740] = (60, 90, 140)
+    page[:, 395:405] = 120
+    assert spine.split_spread(page, x=400) == [page] or len(spine.split_spread(page, x=400)) == 1
+
+
 def test_spread_is_split_at_the_gutter():
     page = np.full((400, 800, 3), 245, np.uint8)
     for y in range(40, 360, 24):
