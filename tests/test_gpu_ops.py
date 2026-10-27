@@ -7,7 +7,9 @@ Everything here is skipped when there is no CUDA device.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 import cv2
 import numpy as np
@@ -30,6 +32,13 @@ def _need_free_vram(mb: int = 512) -> None:
     free, _ = torch.cuda.mem_get_info()
     if free < mb * 2 ** 20:
         pytest.skip(f"only {free / 2 ** 20:.0f} MB of GPU memory free")
+
+
+@contextmanager
+def _cpu_reference():
+    """illum.scan_finish dispatches to the GPU when it can; force the numpy body."""
+    with mock.patch.object(torch.cuda, "is_available", lambda: False):
+        yield
 
 
 @pytest.fixture(scope="module")
@@ -142,7 +151,8 @@ def test_flatten_illumination_gpu_matches_reference_on_real_scans(scans):
 def test_scan_finish_gpu_matches_reference_on_real_scans(scans):
     _need_free_vram()
     for name, img in scans:
-        ref = illum.scan_finish(img)
+        with _cpu_reference():
+            ref = illum.scan_finish(img)
         _assert_close(gpu_ops.scan_finish_gpu(img), ref, f"scan_finish {name}")
 
 

@@ -132,6 +132,39 @@ def similarity(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
+def session_split(pages: list[dict], gap_seconds: int = 300) -> list[list[dict]]:
+    """Contiguous capture bursts: a book or magazine scanned in one sitting."""
+    out: list[list[dict]] = []
+    cur: list[dict] = []
+    for page in pages:
+        if cur and page["captured"] and cur[-1]["captured"]:
+            if (page["captured"] - cur[-1]["captured"]).total_seconds() > gap_seconds:
+                out.append(cur)
+                cur = []
+        cur.append(page)
+    if cur:
+        out.append(cur)
+    return out
+
+
+def split_session(session: list[dict]) -> list[list[dict]]:
+    """Inside one burst, a page numbered 1 (or a cover) starts a new document."""
+    docs: list[list[dict]] = []
+    cur: list[dict] = []
+    for page in session:
+        starts = bool(cur) and (
+            (page.get("number") == 1 and (cur[-1].get("number") or 0) > 1)
+            or page.get("cover") and not cur[-1].get("cover")
+        )
+        if starts:
+            docs.append(cur)
+            cur = []
+        cur.append(page)
+    if cur:
+        docs.append(cur)
+    return docs
+
+
 def group(pages: list[dict], threshold: float = 0.25, gap_minutes: int = 360,
           llm_url: str | None = None, embed_url: str | None = None,
           embed_threshold: float = 0.72) -> list[list[dict]]:
@@ -187,6 +220,97 @@ def order_document(pages: list[dict]) -> list[dict]:
     return sorted(pages, key=lambda p: (p["captured"] or datetime.max))
 
 
+def _tokens(text: str) -> list[str]:
+    import re as _re
+    import unicodedata
+
+    text = unicodedata.normalize("NFKD", text.lower())
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return [t for t in _re.findall(r"[a-z]{4,}", text)]
+
+
+def merge_similar(docs: list[list[dict]], ocr_dir: Path, threshold: float = 0.35) -> list[list[dict]]:
+    """Merge documents that talk about the same thing.
+
+    A book can be photographed across several sessions; sequential grouping then
+    splits it. TF-IDF centroids over the OCR text are enough to pull those back
+    together without an embedding server.
+    """
+    import math
+
+    texts = []
+    for doc in docs:
+        buf = []
+        for page in doc:
+            j = ocr_dir / (Path(page["file"]).stem + ".json")
+            if j.exists():
+                data = json.loads(j.read_text())
+                buf.extend(l["text"] for l in data["lines"])
+        texts.append(buf)
+
+    tokenised = [_tokens(" ".join(t)) for t in texts]
+    df = {}
+    for toks in tokenised:
+        for t in set(toks):
+            df[t] = df.get(t, 0) + 1
+    n = len(tokenised)
+    idf = {t: math.log((1 + n) / (1 + c)) + 1 for t, c in df.items()}
+
+    vecs = []
+    for toks in tokenised:
+        tf = {}
+        for t in toks:
+            tf[t] = tf.get(t, 0) + 1
+        vec = {t: (c / max(1, len(toks))) * idf.get(t, 1.0) for t, c in tf.items()}
+        norm = math.sqrt(sum(v * v for v in vec.values())) or 1.0
+        vecs.append({t: v / norm for t, v in vec.items()})
+
+    def cos(a, b):
+        if len(a) > len(b):
+            a, b = b, a
+        return sum(v * b.get(t, 0.0) for t, v in a.items())
+
+    parent = list(range(len(docs)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(docs)):
+        for j in range(i + 1, len(docs)):
+            if cos(vecs[i], vecs[j]) >= threshold:
+                ri, rj = find(i), find(j)
+                if ri != rj:
+                    parent[rj] = ri
+
+    merged: dict[int, list[dict]] = {}
+    for i, doc in enumerate(docs):
+        merged.setdefault(find(i), []).extend(doc)
+    out = list(merged.values())
+    for doc in out:
+        doc.sort(key=lambda p: (p["captured"] or datetime.max))
+    return out
+
+
+def _cover_score(scan_dir: Path | None, name: str) -> bool:
+    """A cover is a mostly-saturated, low-text page (a book/magazine cover)."""
+    if scan_dir is None:
+        return False
+    import cv2
+    import numpy as np
+
+    img = cv2.imread(str(scan_dir / name), cv2.IMREAD_REDUCED_COLOR_4)
+    if img is None:
+        return False
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    sat = hsv[:, :, 1]
+    val = hsv[:, :, 2]
+    colourful = float(((sat > 90) & (val > 40)).mean())
+    return colourful > 0.35
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("ocr_dir")
@@ -196,14 +320,29 @@ def main(argv=None) -> int:
     ap.add_argument("--llm", default=None, help="llama-server URL for ambiguous boundaries")
     ap.add_argument("--embed-url", default=None, help="llama-server URL (with --embeddings) for page-topic similarity")
     ap.add_argument("--embed-threshold", type=float, default=0.72)
+    ap.add_argument("--scan-dir", default=None, help="scan directory (enables cover detection)")
+    ap.add_argument("--sessions", action="store_true",
+                    help="group wholesale capture bursts as documents (books, magazines)")
+    ap.add_argument("--merge-similar", type=float, default=0.0,
+                    help="merge documents whose TF-IDF centroids are at least this similar")
     args = ap.parse_args(argv)
 
     pages = load_pages(Path(args.ocr_dir))
+    scan_dir = Path(args.scan_dir) if args.scan_dir else None
+    for p in pages:
+        p["cover"] = _cover_score(scan_dir, p["file"])
     if not pages:
         print("no OCR output found", file=sys.stderr)
         return 1
-    docs = group(pages, args.threshold, args.gap_minutes, args.llm,
-                 args.embed_url, args.embed_threshold)
+    if args.sessions:
+        docs = []
+        for session in session_split(pages):
+            docs.extend(split_session(session))
+    else:
+        docs = group(pages, args.threshold, args.gap_minutes, args.llm,
+                     args.embed_url, args.embed_threshold)
+    if args.merge_similar > 0:
+        docs = merge_similar(docs, Path(args.ocr_dir), args.merge_similar)
     out = []
     for i, doc in enumerate(docs, 1):
         ordered = order_document(doc)

@@ -64,6 +64,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--weights", default=str(Path(__file__).resolve().parents[2] / "weights"))
     ap.add_argument("--workers", type=int, default=1)
+    ap.add_argument("--threads", type=int, default=1,
+                    help="concurrent images inside one process; keeps the GPU busy "
+                         "while the CPU decodes/encodes the neighbouring images")
     ap.add_argument("--json", help="write a JSON report of all results here")
     args = ap.parse_args(argv)
 
@@ -91,6 +94,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.workers > 1:
         with ProcessPoolExecutor(max_workers=args.workers, initializer=_init_worker,
                                  initargs=(args,)) as pool:
+            for i, res in enumerate(pool.map(_work, jobs), 1):
+                results.append(res)
+                print(f"[{i}/{len(jobs)}] {res['status']:<8} {res['source']}", flush=True)
+    elif args.threads > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _init_worker(args)
+        with ThreadPoolExecutor(max_workers=args.threads) as pool:
             for i, res in enumerate(pool.map(_work, jobs), 1):
                 results.append(res)
                 print(f"[{i}/{len(jobs)}] {res['status']:<8} {res['source']}", flush=True)

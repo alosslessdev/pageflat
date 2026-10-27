@@ -33,7 +33,7 @@ ImgLike = Union[np.ndarray, torch.Tensor]
 
 _BG_GRID = 160          # grid size used by illum.background_from_model
 _WARP_BAND = 1024       # output rows per grid_sample call (bounds grid memory)
-_RESIZE_BAND_PX = 1200  # source rows per resize band (bounds cumsum memory)
+_RESIZE_BAND_PX = 768   # source rows per resize band (bounds cumsum memory)
 
 
 # --------------------------------------------------------------------- helpers

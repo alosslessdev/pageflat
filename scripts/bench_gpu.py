@@ -26,6 +26,7 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 import cv2
 import numpy as np
@@ -62,6 +63,13 @@ def _timed(store: dict, name: str):
     finally:
         _sync()
         store[name] = store.get(name, 0.0) + (time.perf_counter() - t0) * 1e3
+
+
+@contextmanager
+def _cpu_reference():
+    """Force illum.scan_finish onto its numpy body (it dispatches to the GPU)."""
+    with mock.patch.object(torch.cuda, "is_available", lambda: False):
+        yield
 
 
 class GpuSampler(threading.Thread):
@@ -138,7 +146,8 @@ def run_cpu(path: Path, det: DocTrPipeline, png: Path) -> dict:
                          borderMode=cv2.BORDER_CONSTANT, borderValue=0)
         del map_x, map_y
     with _timed(t, "illumination"):
-        page = illum.scan_finish(page)
+        with _cpu_reference():
+            page = illum.scan_finish(page)
     with _timed(t, "png_write"):
         cv2.imwrite(str(png), page, [cv2.IMWRITE_PNG_COMPRESSION, 1])
     t["wall_ms"] = (time.perf_counter() - wall0) * 1e3
@@ -150,24 +159,27 @@ def run_cpu(path: Path, det: DocTrPipeline, png: Path) -> dict:
 def _gpu_mask(det: DocTrPipeline, small: torch.Tensor) -> np.ndarray:
     """U2NETP page mask at `small`'s size, staying on the device."""
     h, w = small.shape[:2]
-    x = F.interpolate(small.permute(2, 0, 1).unsqueeze(0).float().div_(255.0),
-                      size=(512, 512), mode="area")
-    m = det.seg(x[:, [2, 1, 0]])[0]
-    m = F.interpolate(m[:, :1], size=(h, w), mode="bilinear", align_corners=False)
+    with torch.no_grad():
+        x = F.interpolate(small.permute(2, 0, 1).unsqueeze(0).float().div_(255.0),
+                          size=(512, 512), mode="area")
+        m = det.seg(x[:, [2, 1, 0]])[0]
+        m = F.interpolate(m[:, :1], size=(h, w), mode="bilinear", align_corners=False)
     return m[0, 0].float().cpu().numpy()
 
 
 def _gpu_flow(det: DocTrPipeline, rect: torch.Tensor) -> torch.Tensor:
     """DocTr backward flow as a grid_sample grid (1, h, w, 2) on the device."""
     h, w = rect.shape[:2]
-    s = F.interpolate(rect.permute(2, 0, 1).unsqueeze(0).float().div_(255.0),
-                      size=(288, 288), mode="area")
-    rgb = s[:, [2, 1, 0]]
-    msk = (det.seg(rgb)[0] > 0.5).float()
-    bm = det.geotr(msk * rgb)[0]
-    bm = (2 * (bm / 286.8) - 1) * 0.99
-    g = F.interpolate(bm.unsqueeze(0), size=(h, w), mode="bilinear", align_corners=False)
-    return F.avg_pool2d(g, 3, stride=1, padding=1).permute(0, 2, 3, 1)
+    with torch.no_grad():
+        s = F.interpolate(rect.permute(2, 0, 1).unsqueeze(0).float().div_(255.0),
+                          size=(288, 288), mode="area")
+        rgb = s[:, [2, 1, 0]]
+        msk = (det.seg(rgb)[0] > 0.5).float()
+        bm = det.geotr(msk * rgb)[0]
+        bm = (2 * (bm / 286.8) - 1) * 0.99
+        g = F.interpolate(bm.unsqueeze(0), size=(h, w), mode="bilinear", align_corners=False)
+        out = F.avg_pool2d(g, 3, stride=1, padding=1)
+    return out.permute(0, 2, 3, 1)
 
 
 def run_gpu(path: Path, det: DocTrPipeline, png: Path) -> dict:
@@ -308,7 +320,9 @@ def main(argv=None) -> int:
         return 2
 
     torch.set_num_threads(args.threads)
-    torch.backends.cudnn.benchmark = True
+    # no cudnn autotuning: benchmark=True spends minutes warm-selecting kernels
+    # for every conv shape of U2NETP/GeoTr and caches the workspaces.
+    torch.backends.cudnn.benchmark = False
     photos = sorted(p for p in args.src.glob("IMG_*.jpg"))[:args.n]
     if len(photos) < args.n:
         print(f"only {len(photos)} photos found in {args.src}", file=sys.stderr)
@@ -337,6 +351,9 @@ def main(argv=None) -> int:
         det_gpu = DocTrPipeline(device="cuda")
         torch.cuda.reset_peak_memory_stats()
         sampler.phase = "gpu"
+        run_gpu(photos[0], det_gpu, out_dir / "warm_gpu.png")   # warm the kernels
+        print("  gpu warmup done", flush=True)
+        torch.cuda.reset_peak_memory_stats()
         for i, path in enumerate(photos, 1):
             row = run_gpu(path, det_gpu, out_dir / f"gpu_{i}.png")
             gpu_rows.append(row)
@@ -347,6 +364,8 @@ def main(argv=None) -> int:
 
         det_cpu = DocTrPipeline(device="cpu")
         sampler.phase = "cpu"
+        run_cpu(photos[0], det_cpu, out_dir / "warm_cpu.png")   # warm the kernels
+        print("  cpu warmup done", flush=True)
         for i, path in enumerate(photos, 1):
             row = run_cpu(path, det_cpu, out_dir / f"cpu_{i}.png")
             cpu_rows.append(row)

@@ -118,14 +118,16 @@ def _scan_finish_gpu(img_bgr: np.ndarray, paper_white: bool) -> np.ndarray:
     bg_small = background_from_model(coef, (160, 160)).astype(np.float32)  # 160x160x3
     h, w = img_bgr.shape[:2]
     means = np.array(cv2.mean(img_bgr)[:3], np.float32)
+    # interpolate the *background*, not the ratio: 245/bg is not linear, so
+    # upsampling the ratio first changes the result where the gradient is steep
+    t_bg = torch.from_numpy(bg_small).permute(2, 0, 1).unsqueeze(0).to(device)
+    t_bg = F.interpolate(t_bg, size=(h, w), mode="bilinear", align_corners=False)
     if paper_white:
         wb = float(means.mean()) / np.maximum(means, 1e-3)
-        scale_small = 245.0 / bg_small * wb.reshape(1, 1, 3)
+        t_scale = 245.0 / t_bg.clamp_(min=8.0)
+        t_scale = t_scale * torch.from_numpy(wb.reshape(1, 3, 1, 1)).to(device)
     else:
-        scale_small = np.ones_like(bg_small)
-
-    t_scale = torch.from_numpy(scale_small).permute(2, 0, 1).unsqueeze(0).to(device)
-    t_scale = F.interpolate(t_scale, size=(h, w), mode="bilinear", align_corners=False)
+        t_scale = torch.ones_like(t_bg)
     t_img = torch.from_numpy(np.ascontiguousarray(img_bgr)).permute(2, 0, 1).unsqueeze(0).to(device)
     out = (t_img.float() * t_scale).clamp_(0, 255).to(torch.uint8)
     arr = out[0].permute(1, 2, 0).cpu().numpy()
