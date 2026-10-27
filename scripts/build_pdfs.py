@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import cv2
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
@@ -49,8 +50,16 @@ def build(doc: dict, scan_dir: Path, ocr_dir: Path, out_path: Path, font: str) -
         if img is None:
             continue
         h, w = img.shape[:2]
+        # embed a JPEG at a sane resolution: a 3508 px PNG per page makes 15 MB pages
+        scale = min(1.0, 2000.0 / max(h, w))
+        page = img if scale >= 1 else cv2.resize(
+            img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", page, [cv2.IMWRITE_JPEG_QUALITY, 88])
+        if not ok:
+            continue
+        import io
         c.setPageSize((w, h))
-        c.drawImage(str(scan), 0, 0, width=w, height=h)
+        c.drawImage(ImageReader(io.BytesIO(buf.tobytes())), 0, 0, width=w, height=h)
         ocr_json = ocr_dir / (scan.stem + ".json")
         if ocr_json.exists():
             data = json.loads(ocr_json.read_text())
