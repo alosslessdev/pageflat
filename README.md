@@ -88,6 +88,9 @@ python -m pageflat.cli photo.jpg -o scans --debug
 Options: `--dewarp {doctr,uvdoc,best,none}`, `--illum {classical,doctr,none}`,
 `--sam`, `--long-side`, `--no-split`, `--debug`, `--json`, `--workers`.
 
+`scripts/repair_orientation.py` fixes page rotation after the fact by combining
+docTR's page-orientation classifier with OCR-confidence scoring.
+
 After a batch, `scripts/finalize_scans.py` re-checks finished scans, splits any
 spreads that were left whole, and writes a manifest. `scripts/refine_scan.py`
 applies the two residual fixes that the learned rectifier does not cover:

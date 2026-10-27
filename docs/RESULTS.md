@@ -34,6 +34,14 @@ metrics, pages, timing).
 
 Every scan has an entry in `scans_manifest.json` next to it.
 
+After the batch, orientations were repaired in place with
+`scripts/repair_orientation.py`, which trusts docTR's page-orientation classifier
+when its confidence is ≥ 0.9 and otherwise falls back to OCR word-confidence
+scoring of the four candidate rotations. On this library the classifier is right
+for ordinary pages but can hold the same class for very image-heavy children's
+pages, where the OCR signal is the reliable one — the combined rule fixed both
+kinds, 170 + 13 pages rotated in total.
+
 ## What works well
 
 * pages that fill the frame (forms, receipts, single book pages) — the result is
