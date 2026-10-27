@@ -115,6 +115,13 @@ that drops coloured surroundings.
   the detected baselines are already flat to ~1.5 px, and further warping only
   adds interpolation noise.
 
+## Results on a real library
+
+243 858 JPEGs scanned → 5 600 files at ≥ 60 MP → 652 flagged as page photos;
+the whole set was rectified into 300 dpi scans. See `docs/RESULTS.md` and
+`docs/PIPELINE.md` for the numbers, `docs/AUDIT.md` for the defects found by an
+independent audit and what was changed in response.
+
 ## References
 
 * Feng et al., *DocTr: Document Image Transformer for Geometric Unwarping and
