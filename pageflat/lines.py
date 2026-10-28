@@ -43,7 +43,7 @@ WORK_SIDE = 1600
 BOW_MIN = 2.0
 # beyond this fraction of the page height the bow is not paper curl any more:
 # a crumpled sheet bends each line differently and cannot be straightened
-MAX_BOW = 0.006
+MAX_BOW = 0.03
 # residual shape of one line is resampled to this many points across its span
 CURVE_POINTS = 33
 
@@ -452,21 +452,13 @@ def _dx_field(lines: list[WordLine], shape: tuple[int, int], n_rows: int = 32
 
 
 # ----------------------------------------------------------------- unwarp
-def unwarp(img: np.ndarray, boxes: list[tuple[int, int, int, int]] | None = None
-           ) -> tuple[np.ndarray, dict]:
-    """Make word lines horizontal and block edges vertical, like a grid in a frame.
-
-    Returns the image unchanged (same array, ``corrected`` False) when the page
-    is already flat, when too few lines could be measured, or when the bow is
-    too large or too uneven to be paper curl. ``info`` carries the line count,
-    the median ``bow`` and the p75-p25 ``spread`` in input pixels, and the
-    ``rejected`` reason when nothing was done.
-    """
+def _one_pass(img: np.ndarray, boxes) -> tuple[np.ndarray, float, dict]:
+    """One application of the field; returns the image, its bow, and diagnostics."""
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
     lines, back = detect_word_lines(gray, boxes=boxes)
     info = {"lines": len(lines), "bow": 0.0, "corrected": False}
     if len(lines) < 6:
-        return img, info
+        return img, 0.0, info
     h, w = gray.shape[:2]
     shape = (max(16, int(round(h / back))), max(16, int(round(w / back))))
     bows = np.array([l.bow for l in lines], dtype=np.float64)
@@ -475,32 +467,29 @@ def unwarp(img: np.ndarray, boxes: list[tuple[int, int, int, int]] | None = None
     info["bow"] = round(bow * back, 2)
     info["spread"] = round(spread * back, 2)
     if bow < BOW_MIN:
-        return img, info
-    # Paper curl bends every line by about the same, moderate amount. A
-    # crumpled sheet (or a photo of a pile of pages) bends lines by tens of
-    # pixels and by different amounts from line to line; no single smooth
-    # field can undo that, and trying shears the page and costs OCR.
+        info["rejected"] = "flat"
+        return img, bow, info
     if bow > MAX_BOW * shape[0]:
         info["rejected"] = "bow_too_large"
-        return img, info
-    if spread > max(1.5, bow):
+        return img, bow, info
+    if spread > max(2.0, 1.5 * bow):
         info["rejected"] = "bow_inconsistent"
-        return img, info
+        return img, bow, info
     dy = _dy_field(lines, shape, bow)
     dx = _dx_field(lines, shape)
     if dy is None and dx is None:
-        return img, info
+        info["rejected"] = "no_field"
+        return img, bow, info
     size = (w, h)
-    dy_full = cv2.resize(dy, size, interpolation=cv2.INTER_CUBIC) * back \
-        if dy is not None else None
-    dx_full = cv2.resize(dx, size, interpolation=cv2.INTER_CUBIC) * back \
-        if dx is not None else None
+    dy_full = cv2.resize(dy, size, interpolation=cv2.INTER_CUBIC) * back if dy is not None else None
+    dx_full = cv2.resize(dx, size, interpolation=cv2.INTER_CUBIC) * back if dx is not None else None
     if dy_full is not None and float(np.abs(dy_full).max()) < 1.0:
         dy_full = None
     if dx_full is not None and float(np.abs(dx_full).max()) < 1.0:
         dx_full = None
     if dy_full is None and dx_full is None:
-        return img, info
+        info["rejected"] = "no_field"
+        return img, bow, info
     xs, ys = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
     map_x = xs + (dx_full if dx_full is not None else 0.0)
     map_y = ys + (dy_full if dy_full is not None else 0.0)
@@ -508,10 +497,58 @@ def unwarp(img: np.ndarray, boxes: list[tuple[int, int, int, int]] | None = None
     np.clip(map_y, 0, h - 1, out=map_y)
     out = cv2.remap(img, map_x.astype(np.float32), map_y.astype(np.float32),
                     cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-    info["corrected"] = True
     info["dx"] = dx_full is not None
     info["dy"] = dy_full is not None
-    return out, info
+    return out, bow, info
+
+
+def unwarp(img: np.ndarray, boxes: list[tuple[int, int, int, int]] | None = None,
+           passes: int = 3, min_gain: float = 0.75) -> tuple[np.ndarray, dict]:
+    """Make word lines horizontal and block edges vertical, like a grid in a frame.
+
+    Each pass measures the page it is given and removes what it can; the loop
+    stops when a pass stops helping. The result is only accepted when the
+    measured bow really fell — a correction that does not straighten anything
+    is not applied, because on pages where the "lines" were layout the field
+    shears the text and costs OCR.
+
+    Returns the image unchanged (same array, ``corrected`` False) when the page
+    is already flat, when too few lines could be measured, or when no pass
+    helped.
+    """
+    best, best_bow, best_info = img, None, {"lines": 0, "bow": 0.0, "corrected": False}
+    current = img
+    first_bow = None
+    used = 0
+    for _ in range(max(1, passes)):
+        out, bow, info = _one_pass(current, boxes)
+        if first_bow is None:
+            first_bow = bow
+            best_info = info
+        if out is current or bow <= 0:
+            break
+        best, best_bow, current = out, bow, out
+        used += 1
+        if bow < BOW_MIN:
+            break
+    if best is img or best_bow is None or first_bow is None:
+        return img, best_info
+    # `best_bow` is the bow the last pass *saw*, before its own remap: measure
+    # the image that actually came out, or a correction that worked looks like
+    # it did nothing
+    final_lines, final_back = detect_word_lines(
+        cv2.cvtColor(best, cv2.COLOR_BGR2GRAY) if best.ndim == 3 else best, boxes=boxes)
+    if not final_lines:
+        return img, best_info
+    best_bow = float(np.median([l.bow for l in final_lines]))
+    info = dict(best_info)
+    info["bow_after"] = round(best_bow * final_back, 2)
+    if best_bow > min_gain * first_bow:
+        info["rejected"] = "no_improvement"
+        return img, info
+    info["corrected"] = True
+    info["passes"] = used
+    return best, info
 
 
 def column_gap(lines: list[WordLine], width: int, min_frac: float = 0.05) -> int | None:

@@ -37,7 +37,8 @@ class Settings:
     paper_reach: float = 0.0            # >0: reach past a crop that cut into the text
     content_route: bool = False         # classify the page and pick a strategy
     route_url: str = ""                 # clef (llama-server) endpoint for the classifier
-    line_straighten: bool = False       # word-line bow removal (needs reliable lines)
+    line_straighten: bool = True        # word-line bow removal (kept only if OCR agrees)
+    line_min_gain: float = 0.5          # OCR points the grid must win to be kept
     save_debug: bool = False
     min_quad_area: float = 0.05
     min_rectangularity: float = 0.65
@@ -518,8 +519,17 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
             # measure, so the grid must not be forced onto it
             kind = page_kind(rect, settings)
             res.kind = kind
-            if settings.line_straighten and kind != "graphic":
-                rect, line_info = lines.unwarp(rect)
+            text_page = kind in ("single_text", "single_text_curled", "unknown")
+            if settings.line_straighten and text_page and kind != "graphic":
+                # The grid is only kept when tesseract agrees: the measured bow
+                # can fall while the text gets worse (IMG_20251211_164318 lost
+                # 14 OCR points that way), so the downstream metric decides.
+                cand, line_info = lines.unwarp(rect)
+                if line_info.get("corrected"):
+                    if ocr_quality(cand) > ocr_quality(rect) + settings.line_min_gain:
+                        rect = cand
+                    else:
+                        line_info["rejected"] = "ocr_no_gain"
                 res.lines = line_info
 
             if settings.illum_mode == "doctr":
