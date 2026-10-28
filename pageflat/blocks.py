@@ -550,3 +550,72 @@ def rectify_rows(img: np.ndarray, lines, max_shift: float = 0.04) -> tuple[np.nd
     out = cv2.remap(img, map_x, gy, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
     return out, {"corrected": True, "max_shift": round(float(np.abs(profile).max()), 1),
                  "blocks": len(blocks)}
+
+
+def correspondence_points(lines, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """Point pairs from the detected lines: send each end to where it belongs.
+
+    This is the control-point formulation (Xie et al., "Document Dewarping with
+    Control Points"): a line's left end must sit on its block's left margin and
+    its right end on the right margin, both at the line's own height. Fit a
+    smooth surface through those constraints and the page flattens between
+    them, instead of each block fighting the others.
+    """
+    blocks = blocks_of(lines)
+    src, dst = [], []
+    width = max(1.0, float(np.percentile([l[2] for l in lines], 90)
+                          - np.percentile([l[0] for l in lines], 10)))
+    for block in blocks:
+        lefts = np.array([l[0] for l in block.lines])
+        rights = np.array([l[2] for l in block.lines])
+        if float(np.percentile(lefts, 90) - np.percentile(lefts, 10)) > 0.04 * width:
+            continue
+        target_l = float(np.median(lefts))
+        target_r = float(np.median(rights)) if block.justified else None
+        for line in block.lines:
+            y = (line[1] + line[3]) / 2.0
+            src.append((line[0], y))
+            dst.append((target_l, y))
+            if target_r is not None:
+                src.append((line[2], y))
+                dst.append((target_r, y))
+    if len(src) < 8:
+        return np.empty((0, 2)), np.empty((0, 2))
+    return np.asarray(src, float), np.asarray(dst, float)
+
+
+def rectify_tps(img: np.ndarray, lines, smoothing: float = 0.5, grid: int = 64,
+                max_shift: float = 0.06) -> tuple[np.ndarray, dict]:
+    """Thin-plate-spline rectification through the line-end constraints."""
+    from scipy.interpolate import RBFInterpolator
+
+    h, w = img.shape[:2]
+    src, dst = correspondence_points(lines, (h, w))
+    if src.shape[0] < 8:
+        return img, {"corrected": False, "points": int(src.shape[0])}
+    try:
+        fit = RBFInterpolator(src, dst, kernel="thin_plate_spline",
+                              smoothing=smoothing, degree=1)
+    except Exception as exc:  # noqa: BLE001
+        return img, {"corrected": False, "error": repr(exc)[:60]}
+    gy = np.linspace(0, h - 1, grid)
+    gx = np.linspace(0, w - 1, grid)
+    GX, GY = np.meshgrid(gx, gy)
+    query = np.stack([GX.ravel(), GY.ravel()], -1)
+    moved = fit(query).reshape(grid, grid, 2)
+    dx = (moved[:, :, 0] - GX)
+    dy = (moved[:, :, 1] - GY)
+    capx, capy = max_shift * w, 0.03 * h
+    dx = np.clip(dx, -capx, capx).astype(np.float32)
+    dy = np.clip(dy, -capy, capy).astype(np.float32)
+    if float(np.abs(dx).max()) < 1.0 and float(np.abs(dy).max()) < 1.0:
+        return img, {"corrected": False, "points": int(src.shape[0])}
+    fx = cv2.resize(dx, (w, h), interpolation=cv2.INTER_CUBIC)
+    fy = cv2.resize(dy, (w, h), interpolation=cv2.INTER_CUBIC)
+    gxx, gyy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    map_x = np.clip(gxx + fx, 0, w - 1)
+    map_y = np.clip(gyy + fy, 0, h - 1)
+    out = cv2.remap(img, map_x, map_y, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    return out, {"corrected": True, "points": int(src.shape[0]),
+                 "max_dx": round(float(np.abs(dx).max()), 1),
+                 "max_dy": round(float(np.abs(dy).max()), 1)}
