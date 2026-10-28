@@ -34,16 +34,35 @@ def sharpness(path: Path) -> float:
     return row_sharpness(img) if img is not None else 0.0
 
 
+def drift_of(path: Path) -> float:
+    """The goal metric: how far the text blocks are from rectangles (lower is
+    better). Replacing by sharpness alone made pages crisper and *more* bent —
+    measured 1.64% -> 2.23% on the pilot — so the comparison has to use this."""
+    import cv2
+    from pageflat.detect import text_lines
+    from pageflat.blocks import blocks_of
+    img = cv2.imread(str(path))
+    if img is None:
+        return 1e9
+    blocks = blocks_of(text_lines(img))
+    if not blocks:
+        return 1e9
+    e = sorted(b.rect_error for b in blocks)
+    return float(e[len(e) // 2])
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("scans")
     ap.add_argument("--inventory", required=True)
     ap.add_argument("--chunk", type=int, default=100)
+    ap.add_argument("--limit", type=int, default=0, help="stop after this many sources")
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--dewarp", default="best")
     ap.add_argument("--pick-metric", default="bow")
-    ap.add_argument("--gain", type=float, default=1.15,
-                    help="how much sharper the re-run must be to replace")
+    ap.add_argument("--metric", choices=["sharp", "drift"], default="drift")
+    ap.add_argument("--gain", type=float, default=0.85,
+                    help="how much better (drift) the re-run must be to replace")
     ap.add_argument("--journal", default=None)
     ap.add_argument("--changed-out", default=None)
     ap.add_argument("--scratch", default=None)
@@ -62,6 +81,8 @@ def main(argv=None) -> int:
         key = resolve(source_of(name), inventory)
         if key and key not in done and key not in stems:
             stems.append(key)
+    if args.limit:
+        stems = stems[:args.limit]
     print(f"{len(stems)} sources to do ({len(done)} already done)", file=sys.stderr)
 
     changed = [l.strip() for l in changed_path.read_text().splitlines()] if changed_path.exists() else []
@@ -104,9 +125,11 @@ def main(argv=None) -> int:
             if not new:
                 continue
             old_files = sorted(scans.glob(f"{stem}*.png"))
-            new_s = float(np.median([sharpness(p) for p in new[:2]]))
-            old_s = float(np.median([sharpness(p) for p in old_files[:2]])) if old_files else 0.0
-            if old_files and new_s <= old_s * args.gain:
+            fn = drift_of if args.metric == "drift" else sharpness
+            new_s = float(np.median([fn(p) for p in new[:2]]))
+            old_s = float(np.median([fn(p) for p in old_files[:2]])) if old_files else 1e9
+            better = (new_s < old_s * args.gain) if args.metric == "drift" else (new_s > old_s * args.gain)
+            if old_files and not better:
                 continue
             for f in old_files:
                 f.unlink()

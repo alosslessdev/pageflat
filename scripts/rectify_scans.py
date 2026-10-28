@@ -65,6 +65,9 @@ def main(argv=None) -> int:
     ap.add_argument("--threshold", type=float, default=3.0)
     ap.add_argument("--conf-budget", type=float, default=2.0)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--shard", default=None,
+                    help="i/N: process every N-th page, so several workers can share the corpus")
+    ap.add_argument("--all", action="store_true", help="every scan, not only the failing ones")
     ap.add_argument("--pages-from", default=None,
                     help="JSONL of pages with a drift_frac, to avoid re-measuring all")
     ap.add_argument("--journal", default=None)
@@ -73,7 +76,9 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     scans = Path(args.scans)
     journal = Path(args.journal) if args.journal else scans / "rectify_journal.jsonl"
-    if args.pages_from:
+    if args.all:
+        pages = sorted(scans.glob("*.png"))
+    elif args.pages_from:
         rows = [json.loads(l) for l in open(args.pages_from) if l.strip()]
         keep = [r["page"] for r in rows if r.get("drift_frac", 0) > args.threshold / 100.0]
         pages = [scans / p for p in keep if (scans / p).exists()]
@@ -92,6 +97,9 @@ def main(argv=None) -> int:
                 pass
         pages = [p for p in pages if p.name not in done]
         print(f"resuming: {len(done)} already scored, {len(pages)} to go", file=sys.stderr)
+    if args.shard:
+        i, n = (int(v) for v in args.shard.split("/"))
+        pages = pages[i::n]
     if args.limit:
         pages = pages[:args.limit]
     changed, skipped = [], 0
@@ -103,6 +111,11 @@ def main(argv=None) -> int:
             base = drift(img)
             if args.only_failing and (base is None or base <= args.threshold):
                 skipped += 1
+                # record it, or the supervisor can never see the list drained
+                fh.write(json.dumps({"page": page.name, "base": base, "scored": [],
+                                     "pick": None, "drift": None, "conf": None,
+                                     "skipped": "already rectangular"}) + "\n")
+                fh.flush()
                 continue
             # cheap models first, then the block rule; the slow depth pass is
             # added only when the cheap ones leave the page bent
