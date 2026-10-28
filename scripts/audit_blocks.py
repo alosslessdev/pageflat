@@ -36,9 +36,9 @@ def main(argv=None) -> int:
         r = page_rect_error(lines, scale=1.0)
         if r["blocks"] < 1:
             continue
-        rows.append({"page": j.stem + ".png", "blocks": r["blocks"],
-                     "drift_frac": round(r["error"] / width, 4),
-                     "warped": r["error"] / width > args.threshold})
+        rows.append({"page": j.stem + ".png", "blocks": int(r["blocks"]),
+                     "drift_frac": float(round(r["error"] / width, 4)),
+                     "warped": bool(r["error"] / width > args.threshold)})
     warped = sum(1 for r in rows if r["warped"])
     print(f"{len(rows)} pages measured, {warped} fail the rectangle rule "
           f"({100.0 * warped / max(1, len(rows)):.0f} %)")

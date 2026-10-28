@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--debug", action="store_true", help="save boundary overlays")
     ap.add_argument("--paper-reach", type=float, default=0.0,
                     help="reach past a crop that cut into the text (fraction of edge length)")
-    ap.add_argument("--pick-metric", choices=["ocr", "bow"], default="ocr",
+    ap.add_argument("--pick-metric", choices=["ocr", "bow", "drift"], default="ocr",
                     help="how --dewarp best chooses between candidates")
     ap.add_argument("--content-route", action="store_true",
                     help="classify each page and pick the strategy (clef when --route-url is set)")

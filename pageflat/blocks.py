@@ -151,9 +151,9 @@ def page_rect_error(lines, scale: float = 1.0) -> dict:
     if not blocks:
         return {"blocks": 0, "error": 0.0}
     errors = sorted(b.rect_error for b in blocks)
-    return {"blocks": len(blocks),
-            "error": round(errors[len(errors) // 2] * scale, 1),
-            "worst": round(errors[-1] * scale, 1)}
+    return {"blocks": int(len(blocks)),
+            "error": float(round(errors[len(errors) // 2] * scale, 1)),
+            "worst": float(round(errors[-1] * scale, 1))}
 
 
 def rectify_field(img: np.ndarray, lines, scale_x: float, scale_y: float,

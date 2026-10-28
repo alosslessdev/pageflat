@@ -1,6 +1,7 @@
 """End-to-end page -> flat scan pipeline."""
 from __future__ import annotations
 
+import difflib
 import hashlib
 import re
 import subprocess
@@ -520,8 +521,10 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
                 if not hasattr(detector, "dewnet"):
                     detector.dewnet = DewarpNetDewarper(device=str(detector.device))
                 cands = {"none": rect}
+                from . import depthwarp
                 for name, fn in (("doctr", detector.rectify),
-                                 ("dewnet", detector.dewnet.rectify)):
+                                 ("dewnet", detector.dewnet.rectify),
+                                 ("depth", lambda im: depthwarp.rectify(im)[0])):
                     try:
                         cands[name] = fn(rect)
                     except Exception:  # noqa: BLE001
@@ -530,11 +533,21 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
                 # one line-detection pass per candidate, and the OCR confidence
                 # only when it is the chosen criterion.
                 from .sharp import row_sharpness
+                from .detect import text_lines
+                from .blocks import blocks_of
                 scored = []
                 for name, cand in cands.items():
                     gray = cv2.cvtColor(cand, cv2.COLOR_BGR2GRAY)
                     ink = float((255.0 - gray.astype(np.float32)).mean())
-                    scored.append((name, cand, row_sharpness(cand), ink))
+                    if settings.pick_metric == "drift":
+                        # score by the rule itself: the median distance of the
+                        # text blocks from rectangles, negated so higher is better
+                        blocks = blocks_of(text_lines(cand))
+                        drifts = sorted(b.rect_error for b in blocks)
+                        score = -(drifts[len(drifts) // 2]) if drifts else -1e6
+                    else:
+                        score = row_sharpness(cand)
+                    scored.append((name, cand, score, ink))
                 # a candidate that cropped the page keeps less ink; a candidate
                 # that blurred it loses sharpness. Text must be there first.
                 most_ink = max(x[3] for x in scored)
@@ -634,3 +647,48 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
             import torch
             torch.cuda.empty_cache()
     return res
+
+
+def ocr_text(img_bgr: np.ndarray, max_side: int = 1600) -> tuple[str, float, int]:
+    """Recognised text, its mean confidence, and the word count."""
+    h, w = img_bgr.shape[:2]
+    scale = min(1.0, max_side / float(max(h, w)))
+    small = (cv2.resize(img_bgr, (int(w * scale), int(h * scale)),
+                        interpolation=cv2.INTER_AREA) if scale < 1 else img_bgr)
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as fh:
+        tmp = fh.name
+    cv2.imwrite(tmp, small)
+    try:
+        cmd = ["tesseract", tmp, "stdout", "--psm", "3"]
+        if orientation.ocr_lang():
+            cmd += ["-l", orientation.ocr_lang()]
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=120).stdout
+    except Exception:  # noqa: BLE001
+        return "", 0.0, 0
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    words = out.split()
+    return out, ocr_quality(img_bgr, max_side), len(words)
+
+
+def keeps_text(before: np.ndarray, after: np.ndarray, min_chars: float = 0.95,
+               max_conf_drop: float = 1.0) -> tuple[bool, dict]:
+    """Would this correction keep the page's words?
+
+    A mean confidence hides damage: one blurred column averages away against
+    clean text elsewhere. This compares the two transcriptions instead — the
+    correction must still produce the same characters (>= `min_chars` of them)
+    and must not cost confidence.
+    """
+    text_a, conf_a, words_a = ocr_text(before)
+    text_b, conf_b, words_b = ocr_text(after)
+    a = " ".join(text_a.split())
+    b = " ".join(text_b.split())
+    common = 0
+    if a and b:
+        sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+        common = sum(block.size for block in sm.get_matching_blocks())
+    kept = common / max(1, len(a))
+    ok = kept >= min_chars and conf_b >= conf_a - max_conf_drop
+    return ok, {"chars_kept": round(kept, 3), "words": [words_a, words_b],
+                "conf": [round(conf_a, 1), round(conf_b, 1)]}
