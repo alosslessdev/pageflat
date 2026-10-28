@@ -79,8 +79,7 @@ def main(argv=None) -> int:
         pages = [scans / p for p in keep if (scans / p).exists()]
     else:
         pages = sorted(scans.glob("*.png"))
-    if args.limit:
-        pages = pages[:args.limit]
+
     doctr = DocTrPipeline(device="cuda")
     dewnet = DewarpNetDewarper(device="cuda")
     uvdoc = UVDocDewarper()
@@ -93,6 +92,8 @@ def main(argv=None) -> int:
                 pass
         pages = [p for p in pages if p.name not in done]
         print(f"resuming: {len(done)} already scored, {len(pages)} to go", file=sys.stderr)
+    if args.limit:
+        pages = pages[:args.limit]
     changed, skipped = [], 0
     with open(journal, "a" if args.resume else "w") as fh:
         for i, page in enumerate(pages, 1):
