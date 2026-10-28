@@ -61,13 +61,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("inputs", nargs="*", help="image files or directories")
     ap.add_argument("-o", "--out", required=True, help="output directory")
     ap.add_argument("--list", help="text file with one input path per line")
-    ap.add_argument("--dewarp", choices=["doctr", "uvdoc", "best", "none"], default="doctr")
+    ap.add_argument("--dewarp", choices=["doctr", "dewnet", "uvdoc", "best", "none"], default="doctr")
     ap.add_argument("--illum", choices=["classical", "doctr", "none"], default="classical")
     ap.add_argument("--long-side", type=int, default=3508, help="output long side in px (3508 = A4@300dpi)")
     ap.add_argument("--no-split", action="store_true", help="keep two-page spreads together")
     ap.add_argument("--debug", action="store_true", help="save boundary overlays")
     ap.add_argument("--paper-reach", type=float, default=0.0,
                     help="reach past a crop that cut into the text (fraction of edge length)")
+    ap.add_argument("--pick-metric", choices=["ocr", "bow"], default="ocr",
+                    help="how --dewarp best chooses between candidates")
     ap.add_argument("--content-route", action="store_true",
                     help="classify each page and pick the strategy (clef when --route-url is set)")
     ap.add_argument("--route-url", default="",
@@ -97,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         use_sam=args.sam,
         route_url=args.route_url,
         content_route=args.content_route,
+        pick_metric=args.pick_metric,
         paper_reach=args.paper_reach,
         save_debug=args.debug,
         gpu_path=args.gpu_path,

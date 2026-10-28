@@ -178,3 +178,53 @@ class UVDocDewarper:
         pil = Image.fromarray(img_bgr[:, :, ::-1])
         out = self.model.process(pil)
         return np.array(out)[:, :, ::-1].copy()
+
+
+class DewarpNetDewarper:
+    """DewarpNet (ICCV 2019): predict the sheet's 3D surface, then flatten it.
+
+    The shape network regresses a 3D coordinate map of the page; the texture
+    mapping network turns that map into the sampling grid that undoes the
+    deformation. This is the 3D-geometry answer to paper curl, as opposed to
+    DocTr's learned flow, which bends pages that were already straight.
+    """
+
+    def __init__(self, weights_dir: Path | str = WEIGHTS_DIR, device: str = "cuda"):
+        from .vendor.dewarpnet import UnetGenerator, dnetccnl
+
+        self.device = torch.device(device)
+        self.wc = UnetGenerator(input_nc=3, output_nc=3, num_downs=7)
+        self.bm = dnetccnl(img_size=128, in_channels=3, out_channels=2, filters=32)
+        for model, name in ((self.wc, "unetnc_doc3d.pkl"), (self.bm, "dnetccnl_doc3d.pkl")):
+            state = torch.load(str(Path(weights_dir) / name), map_location="cpu",
+                               weights_only=False)
+            state = state.get("model_state", state) if isinstance(state, dict) else state
+            state = _strip_prefix(state)
+            # the released checkpoints were saved from the 2019 wrappers: the
+            # unet keys sit one level shallower than today's module tree
+            if all(k.startswith("model.") and not k.startswith("model.model.")
+                   for k in state if k.startswith("model.")):
+                state = {("model." + k) if k.startswith("model.") else k: v
+                         for k, v in state.items()}
+            model.load_state_dict(state, strict=True)
+            model.to(self.device).eval()
+
+    @torch.no_grad()
+    def rectify(self, img_bgr: np.ndarray) -> np.ndarray:
+        import torch.nn.functional as F
+
+        h, w = img_bgr.shape[:2]
+        rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        small = cv2.resize(rgb, (256, 256))
+        tensor = torch.from_numpy(small.astype(np.float32) / 255.0).permute(2, 0, 1)[None]
+        shape = torch.tanh(self.wc(tensor.to(self.device)))
+        grid = self.bm(F.interpolate(shape, size=(128, 128), mode="nearest"))
+
+        # the sampling grid is in [-1, 1]; the reference maps it to pixels
+        bm = grid.permute(0, 2, 3, 1)[0].cpu().numpy()
+        bm = cv2.blur(bm[:, :, 0], (3, 3)), cv2.blur(bm[:, :, 1], (3, 3))
+        sample = np.stack([cv2.resize(b, (w, h)) for b in bm], axis=-1)[None]
+        sample = torch.from_numpy(sample.astype(np.float32))
+        src = torch.from_numpy((rgb.astype(np.float32) / 255.0).transpose(2, 0, 1)[None])
+        out = F.grid_sample(src, sample, align_corners=True)[0].permute(1, 2, 0).numpy()
+        return cv2.cvtColor((out * 255.0).clip(0, 255).astype(np.uint8), cv2.COLOR_RGB2BGR)

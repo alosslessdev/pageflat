@@ -36,6 +36,7 @@ class Settings:
     quad_margin: float = 0.012          # expand each quad so paper edges survive
     paper_reach: float = 0.0            # >0: reach past a crop that cut into the text
     content_route: bool = False         # classify the page and pick a strategy
+    pick_metric: str = "ocr"            # "bow": choose the straightest candidate without OCR
     route_url: str = ""                 # clef (llama-server) endpoint for the classifier
     line_straighten: bool = True        # word-line bow removal (kept only if OCR agrees)
     line_min_gain: float = 0.5          # OCR points the grid must win to be kept
@@ -64,6 +65,7 @@ class PageResult:
     content: dict = field(default_factory=dict)
     lines: dict = field(default_factory=dict)
     kind: str = ""                         # page type from the content classifier
+    pick: dict = field(default_factory=dict)  # candidate scores in "best" mode
     route: str = ""
     pages: int = 0
     outputs: list = field(default_factory=list)
@@ -499,17 +501,57 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
             if settings.dewarp == "doctr":
                 rect = detector.rectify(rect)
                 res.dewarp = "doctr"
+            elif settings.dewarp == "dewnet":
+                if not hasattr(detector, "dewnet"):
+                    from .models import DewarpNetDewarper
+                    detector.dewnet = DewarpNetDewarper(device=str(detector.device))
+                rect = detector.dewnet.rectify(rect)
+                res.dewarp = "dewnet"
             elif settings.dewarp == "uvdoc":
                 from .models import UVDocDewarper
                 rect = UVDocDewarper().rectify(rect)
                 res.dewarp = "uvdoc"
             elif settings.dewarp == "best":
-                from .models import UVDocDewarper
-                cand_a = detector.rectify(rect)
-                cand_b = UVDocDewarper().rectify(rect)
-                qa, qb = ocr_quality(cand_a), ocr_quality(cand_b)
-                res.dewarp = "doctr" if qa >= qb else "uvdoc"
-                rect = cand_a if qa >= qb else cand_b
+                # No single model wins: on three pages measured from source,
+                # "none" won once, DocTr once, DewarpNet once. So every
+                # candidate is produced, the ones that keep the text are kept,
+                # and the straightest of those is used.
+                from .models import DewarpNetDewarper, UVDocDewarper
+                if not hasattr(detector, "dewnet"):
+                    detector.dewnet = DewarpNetDewarper(device=str(detector.device))
+                cands = {"none": rect}
+                for name, fn in (("doctr", detector.rectify),
+                                 ("dewnet", detector.dewnet.rectify)):
+                    try:
+                        cands[name] = fn(rect)
+                    except Exception:  # noqa: BLE001
+                        continue
+                # Tesseract is the cost here, not the GPU (which sat at 6-10 %):
+                # one line-detection pass per candidate, and the OCR confidence
+                # only when it is the chosen criterion.
+                found_by = {}
+                for name, cand in cands.items():
+                    found, back = lines.detect_word_lines(
+                        cv2.cvtColor(cand, cv2.COLOR_BGR2GRAY))
+                    bow = float(np.median([l.bow for l in found])) * back if found else 1e9
+                    found_by[name] = (cand, bow, len(found))
+                most = max(n for _, _, n in found_by.values())
+                keep = [(name, cand, bow) for name, (cand, bow, n) in found_by.items()
+                        if n >= 0.8 * most]
+                if settings.pick_metric == "ocr" and len(keep) > 1:
+                    confs = {name: ocr_quality(cand) for name, cand, _ in keep}
+                    best_conf = max(confs.values())
+                    scored = [(n, c, confs[n], b) for n, c, b in keep]
+                    keep = [x for x in scored if x[2] >= best_conf - 2.0]
+                    name, rect, conf, bow = min(keep, key=lambda x: x[3] or 1e9)
+                    res.pick = {"ocr": round(conf, 1), "bow": round(bow, 1),
+                                "of": {n: [round(confs.get(n, 0.0), 1), round(b, 1)]
+                                       for n, _, b in keep}}
+                else:
+                    name, rect, bow = min(keep, key=lambda x: x[2] or 1e9)
+                    res.pick = {"bow": round(bow, 1),
+                                "of": {n: [0.0, round(b, 1)] for n, _, b in keep}}
+                res.dewarp = name
 
             if settings.deskew:
                 rect, _ = orientation.deskew(rect, max_angle=10.0)
