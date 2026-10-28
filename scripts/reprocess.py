@@ -36,6 +36,14 @@ def score(path: Path) -> float:
     return ocr_quality(img) if img is not None else 0.0
 
 
+def sharp_of(path: Path) -> float:
+    """Row-ink sharpness: higher is straighter (fast, no tesseract)."""
+    import cv2
+    from pageflat.sharp import row_sharpness
+    img = cv2.imread(str(path))
+    return row_sharpness(img) if img is not None else 0.0
+
+
 def bow_of(path: Path) -> float:
     """Median word-line bow in pixels: lower is straighter.
 
@@ -114,7 +122,7 @@ def main(argv=None) -> int:
     ap.add_argument("--dewarp", choices=["none", "doctr", "uvdoc", "best"], default="doctr")
     ap.add_argument("--pick-metric", choices=["ocr", "bow"], default="ocr",
                     help="how the pipeline's best-of chooses its candidate")
-    ap.add_argument("--metric", choices=["ocr", "bow"], default="ocr",
+    ap.add_argument("--metric", choices=["ocr", "bow", "sharp"], default="ocr",
                     help="what decides whether the re-run replaces the old scan")
     ap.add_argument("--tolerance", type=float, default=1.5,
                     help="replace the old scan when the re-run is within this many "
@@ -201,7 +209,14 @@ def main(argv=None) -> int:
         # bottleneck (one source per minute while the GPU sat idle).
         sample_new = new[:2]
         sample_old = old_files[:2]
-        if args.metric == "bow":
+        if args.metric == "sharp":
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                ns = list(pool.map(sharp_of, sample_new))
+                os_ = list(pool.map(sharp_of, sample_old)) if sample_old else [0.0]
+            new_conf = float(np.median(ns)) if ns else 0.0
+            old_conf = float(np.median(os_))
+            replace = not old_files or new_conf > old_conf * 1.15
+        elif args.metric == "bow":
             with ThreadPoolExecutor(max_workers=4) as pool:
                 nb = list(pool.map(bow_of, sample_new))
                 ob = list(pool.map(bow_of, sample_old)) if sample_old else [1e9]

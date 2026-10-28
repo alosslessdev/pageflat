@@ -529,28 +529,28 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
                 # Tesseract is the cost here, not the GPU (which sat at 6-10 %):
                 # one line-detection pass per candidate, and the OCR confidence
                 # only when it is the chosen criterion.
-                found_by = {}
+                from .sharp import row_sharpness
+                scored = []
                 for name, cand in cands.items():
-                    found, back = lines.detect_word_lines(
-                        cv2.cvtColor(cand, cv2.COLOR_BGR2GRAY))
-                    bow = float(np.median([l.bow for l in found])) * back if found else 1e9
-                    found_by[name] = (cand, bow, len(found))
-                most = max(n for _, _, n in found_by.values())
-                keep = [(name, cand, bow) for name, (cand, bow, n) in found_by.items()
-                        if n >= 0.8 * most]
+                    gray = cv2.cvtColor(cand, cv2.COLOR_BGR2GRAY)
+                    ink = float((255.0 - gray.astype(np.float32)).mean())
+                    scored.append((name, cand, row_sharpness(cand), ink))
+                # a candidate that cropped the page keeps less ink; a candidate
+                # that blurred it loses sharpness. Text must be there first.
+                most_ink = max(x[3] for x in scored)
+                keep = [x for x in scored if x[3] >= 0.85 * most_ink] or scored
                 if settings.pick_metric == "ocr" and len(keep) > 1:
-                    confs = {name: ocr_quality(cand) for name, cand, _ in keep}
+                    confs = {n: ocr_quality(c) for n, c, _, _ in keep}
                     best_conf = max(confs.values())
-                    scored = [(n, c, confs[n], b) for n, c, b in keep]
-                    keep = [x for x in scored if x[2] >= best_conf - 2.0]
-                    name, rect, conf, bow = min(keep, key=lambda x: x[3] or 1e9)
-                    res.pick = {"ocr": round(conf, 1), "bow": round(bow, 1),
-                                "of": {n: [round(confs.get(n, 0.0), 1), round(b, 1)]
-                                       for n, _, b in keep}}
+                    keep = [x for x in keep if confs[x[0]] >= best_conf - 2.0]
+                    name, rect, sharp, ink = max(keep, key=lambda x: x[2])
+                    res.pick = {"ocr": round(confs[name], 1), "sharp": round(sharp, 1),
+                                "of": {n: [round(confs[n], 1), round(v, 1)]
+                                       for n, _, v, _ in scored}}
                 else:
-                    name, rect, bow = min(keep, key=lambda x: x[2] or 1e9)
-                    res.pick = {"bow": round(bow, 1),
-                                "of": {n: [0.0, round(b, 1)] for n, _, b in keep}}
+                    name, rect, sharp, ink = max(keep, key=lambda x: x[2])
+                    res.pick = {"sharp": round(sharp, 1),
+                                "of": {n: [0.0, round(v, 1)] for n, _, v, _ in scored}}
                 res.dewarp = name
 
             if settings.deskew:
