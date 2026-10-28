@@ -127,14 +127,15 @@ def main(argv=None) -> int:
             if pick and pick[0] != "none" and (base is None or pick[1] < base * 0.8):
                 if args.apply:
                     cv2.imwrite(str(page), cands[pick[0]])
+                    # record each rewrite as it happens: a run that is killed
+                    # halfway must still leave the list the rebuild needs
+                    with open(scans / "rectified_pages.txt", "a") as cf:
+                        cf.write(page.name + "\n")
                 changed.append(page.name)
             if i % 50 == 0:
                 print(f"{i}/{len(pages)} changed {len(changed)}", file=sys.stderr, flush=True)
     if args.apply:
-        all_changed = set(changed)
-        if args.resume and (scans / "rectified_pages.txt").exists():
-            all_changed |= set((scans / "rectified_pages.txt").read_text().split())
-        (scans / "rectified_pages.txt").write_text("\n".join(sorted(all_changed)) + "\n")
+        print(f"{len(changed)} pages rewritten in this pass")
     print(f"{len(changed)} pages improved, {skipped} skipped as already rectangular")
     return 0
 
