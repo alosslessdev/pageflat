@@ -124,6 +124,7 @@ def main(argv=None) -> int:
             if known and min(s[1] for s in known) > args.threshold and "depth" not in cands:
                 extra = candidates(img, doctr, dewnet, uvdoc, include_depth=True)
                 if "depth" in extra:
+                    cands["depth"] = extra["depth"]
                     d, c = drift(extra["depth"]), ocr_quality(extra["depth"])
                     scored.append(("depth", d, c))
                     if d is not None and c is not None:
