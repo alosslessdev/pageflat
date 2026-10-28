@@ -99,13 +99,13 @@ def rectify(img: np.ndarray, lines=None, depth: Optional[np.ndarray] = None,
     if lines is None:
         lines = text_lines(img)
 
+    from .sharp import row_sharpness
+
     def bow(im) -> float:
-        found = text_lines(im)
-        blocks = blocks_of(found)
-        if not blocks:
-            return 1e9
-        vals = sorted(b.rect_error for b in blocks)
-        return vals[len(vals) // 2]
+        """Rank the k values by a cheap profile score; the winner is checked
+        with the real block measure afterwards (twelve detector passes per page
+        is what made this candidate the slowest of the set)."""
+        return -row_sharpness(im)
 
     base = bow(img)
     if k_values is None:
@@ -120,8 +120,20 @@ def rectify(img: np.ndarray, lines=None, depth: Optional[np.ndarray] = None,
             best = (b, k, out)
     if best[1] == 0.0 or best[0] > 0.85 * base:
         return img, {"corrected": False, "bow": round(base, 1)}
+
+    def true_drift(im):
+        found = text_lines(im)
+        blocks = blocks_of(found)
+        if not blocks:
+            return None
+        vals = sorted(b.rect_error for b in blocks)
+        return vals[len(vals) // 2]
+
+    before, after = true_drift(img), true_drift(best[2])
+    if before is None or after is None or after > 0.9 * before:
+        return img, {"corrected": False, "bow": round(before or 0, 1)}
     return best[2], {"corrected": True, "k": best[1],
-                     "bow_before": round(base, 1), "bow_after": round(best[0], 1)}
+                     "bow_before": round(before, 1), "bow_after": round(after, 1)}
 
 
 def developable_residual(resid: np.ndarray) -> np.ndarray:

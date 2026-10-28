@@ -85,14 +85,22 @@ def main(argv=None) -> int:
                 skipped += 1
                 continue
             cands = candidates(img, doctr, dewnet, uvdoc)
+            # Cheapest signal first: sharpness ranks the candidates for free,
+            # the learned detector then measures the block rule only for the
+            # two that look straightest, and OCR only for the finalists.
+            from pageflat.sharp import row_sharpness
+            ranked = sorted(cands.items(), key=lambda kv: -row_sharpness(kv[1]))[:2]
+            if "none" not in [n for n, _ in ranked]:
+                ranked.append(("none", cands["none"]))
             scored = []
+            for name, cand in ranked:
+                scored.append((name, drift(cand), ocr_quality(cand)))
             for name, cand in cands.items():
-                d = drift(cand)
-                c = ocr_quality(cand)
-                scored.append((name, d, c))
-            confs = [s[2] for s in scored]
-            best_conf = max(confs)
-            pool = [s for s in scored if s[2] >= best_conf - args.conf_budget and s[1] is not None]
+                if name not in [s[0] for s in scored]:
+                    scored.append((name, None, None))
+            known = [s for s in scored if s[1] is not None]
+            best_conf = max(s[2] for s in known)
+            pool = [s for s in known if s[2] >= best_conf - args.conf_budget]
             pick = min(pool, key=lambda s: s[1]) if pool else None
             row = {"page": page.name, "base": base, "scored": scored,
                    "pick": pick[0] if pick else None,
