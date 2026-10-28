@@ -196,20 +196,64 @@ def tesseract_lines(gray: np.ndarray, max_side: int = WORK_SIDE
     finally:
         Path(tmp).unlink(missing_ok=True)
     back = 1.0 / scale if scale > 0 else 1.0
-    boxes = []
+    boxes, words = [], []
     for row in out.splitlines()[1:]:
         parts = row.split("\t")
-        if len(parts) < 10 or parts[0] != "4":
+        if len(parts) < 12:
             continue
         try:
             x, y, bw, bh = (int(parts[6]), int(parts[7]), int(parts[8]), int(parts[9]))
         except ValueError:
             continue
-        if bh < 4 or bw < 12:
+        if bh < 4:
             continue
-        boxes.append((int(round(x * back)), int(round(y * back)),
-                      int(round(bw * back)), int(round(bh * back))))
-    return _dedupe(boxes)
+        if parts[0] == "5" and parts[11].strip():
+            words.append((x, y, bw, bh))
+        elif parts[0] == "4" and bw >= 12:
+            boxes.append((int(round(x * back)), int(round(y * back)),
+                          int(round(bw * back)), int(round(bh * back))))
+    lines = _dedupe(boxes)
+    # line-level boxes are what tesseract *thinks* the layout is; when they
+    # come out as fragments, the words still follow the baselines and give the
+    # full-width line the measurement needs
+    if not lines or float(np.median([b[2] for b in lines])) < 0.3 * small.shape[1]:
+        clustered = _cluster_words(words)
+        if len(clustered) > len(lines):
+            lines = [(int(round(x * back)), int(round(y * back)),
+                      int(round(bw * back)), int(round(bh * back)))
+                     for x, y, bw, bh in clustered]
+    return lines
+
+
+def _cluster_words(words: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
+    """Words grouped by baseline: one box per text line, at work-frame scale."""
+    if len(words) < 8:
+        return []
+    heights = np.array([w[3] for w in words], dtype=np.float64)
+    tol = max(4.0, 0.6 * float(np.median(heights)))
+    order = sorted(words, key=lambda w: w[1] + w[3] / 2.0)
+    groups: list[list[tuple[int, int, int, int]]] = []
+    centre = None
+    for w in order:
+        cy = w[1] + w[3] / 2.0
+        if groups and abs(cy - centre) <= tol:
+            groups[-1].append(w)
+            centre = float(np.median([g[1] + g[3] / 2.0 for g in groups[-1]]))
+        else:
+            groups.append([w])
+            centre = cy
+    out = []
+    for g in groups:
+        if len(g) < 2:
+            continue
+        x0 = min(w[0] for w in g)
+        y0 = min(w[1] for w in g)
+        x1 = max(w[0] + w[2] for w in g)
+        y1 = max(w[1] + w[3] for w in g)
+        if x1 - x0 < 12 or y1 - y0 < 4:
+            continue
+        out.append((x0, y0, x1 - x0, y1 - y0))
+    return out
 
 
 def _dedupe(boxes: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
