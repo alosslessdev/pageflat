@@ -31,7 +31,13 @@ def drift(img):
     return float(e[len(e) // 2])
 
 
-def candidates(img, doctr, dewnet, uvdoc):
+def candidates(img, doctr, dewnet, uvdoc, include_depth: bool = True):
+    """The cheap models first; the depth pass (6-7 s) only if they fail.
+
+    The depth correction is the slowest candidate by an order of magnitude, and
+    on most pages one of the flow models already brings the blocks to a
+    rectangle, so running it unconditionally is most of the wasted time.
+    """
     out = {"none": img}
     for name, fn in (("doctr", doctr.rectify), ("dewnet", dewnet.rectify),
                      ("uvdoc", uvdoc.rectify)):
@@ -39,6 +45,8 @@ def candidates(img, doctr, dewnet, uvdoc):
             out[name] = fn(img)
         except Exception:  # noqa: BLE001
             pass
+    if not include_depth:
+        return out
     try:
         cand, info = depthwarp.rectify(img)
         if info.get("corrected"):
@@ -95,7 +103,9 @@ def main(argv=None) -> int:
             if args.only_failing and (base is None or base <= args.threshold):
                 skipped += 1
                 continue
-            cands = candidates(img, doctr, dewnet, uvdoc)
+            # cheap models first, then the block rule; the slow depth pass is
+            # added only when the cheap ones leave the page bent
+            cands = candidates(img, doctr, dewnet, uvdoc, include_depth=False)
             # Cheapest signal first: sharpness ranks the candidates for free,
             # the learned detector then measures the block rule only for the
             # two that look straightest, and OCR only for the finalists.
@@ -110,6 +120,13 @@ def main(argv=None) -> int:
                 if name not in [s[0] for s in scored]:
                     scored.append((name, None, None))
             known = [s for s in scored if s[1] is not None and s[2] is not None]
+            if known and min(s[1] for s in known) > args.threshold and "depth" not in cands:
+                extra = candidates(img, doctr, dewnet, uvdoc, include_depth=True)
+                if "depth" in extra:
+                    d, c = drift(extra["depth"]), ocr_quality(extra["depth"])
+                    scored.append(("depth", d, c))
+                    if d is not None and c is not None:
+                        known.append(("depth", d, c))
             if not known:
                 fh.write(json.dumps({"page": page.name, "base": base, "scored": scored,
                                      "pick": None, "drift": None, "conf": None}) + "\n")
