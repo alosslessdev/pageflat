@@ -20,7 +20,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.benchmark import run  # noqa: E402
+def _run(scans: Path) -> dict:
+    """Fresh interpreter: the watcher must measure the code as it is now.
+
+    Importing `benchmark` once would keep the module objects from before the
+    change, and every later measurement would describe the old code.
+    """
+    out = subprocess.run([sys.executable, str(Path(__file__).parent / "benchmark.py"),
+                          str(scans)], capture_output=True, text=True, timeout=3600)
+    line = out.stdout.strip().splitlines()[-1] if out.stdout.strip() else ""
+    parts = line.split()
+    summary = {"at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    for key, tag in (("drift_median", "drift"), ("drift_fail_pct", "fail"),
+                     ("sharp_median", "sharp"), ("conf_mean", "conf")):
+        try:
+            summary[key] = float(parts[parts.index(tag) + 1].rstrip("%"))
+        except (ValueError, IndexError):
+            summary[key] = None
+    return {"summary": summary, "pages": []}
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -45,7 +62,7 @@ def main(argv=None) -> int:
     while True:
         now = head()
         if now and now != last:
-            result = run(scans, bench)
+            result = _run(scans)
             result["commit"] = now[:10]
             s = result["summary"]
             print(f"{s['at']} {now[:10]} drift {s['drift_median']} fail "
