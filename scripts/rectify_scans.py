@@ -60,6 +60,8 @@ def main(argv=None) -> int:
     ap.add_argument("--pages-from", default=None,
                     help="JSONL of pages with a drift_frac, to avoid re-measuring all")
     ap.add_argument("--journal", default=None)
+    ap.add_argument("--resume", action="store_true",
+                    help="skip pages already in the journal and append")
     args = ap.parse_args(argv)
     scans = Path(args.scans)
     journal = Path(args.journal) if args.journal else scans / "rectify_journal.jsonl"
@@ -74,8 +76,17 @@ def main(argv=None) -> int:
     doctr = DocTrPipeline(device="cuda")
     dewnet = DewarpNetDewarper(device="cuda")
     uvdoc = UVDocDewarper()
+    done = set()
+    if args.resume and journal.exists():
+        for line in journal.read_text().splitlines():
+            try:
+                done.add(json.loads(line)["page"])
+            except Exception:
+                pass
+        pages = [p for p in pages if p.name not in done]
+        print(f"resuming: {len(done)} already scored, {len(pages)} to go", file=sys.stderr)
     changed, skipped = [], 0
-    with open(journal, "w") as fh:
+    with open(journal, "a" if args.resume else "w") as fh:
         for i, page in enumerate(pages, 1):
             img = cv2.imread(str(page))
             if img is None:
@@ -98,7 +109,12 @@ def main(argv=None) -> int:
             for name, cand in cands.items():
                 if name not in [s[0] for s in scored]:
                     scored.append((name, None, None))
-            known = [s for s in scored if s[1] is not None]
+            known = [s for s in scored if s[1] is not None and s[2] is not None]
+            if not known:
+                fh.write(json.dumps({"page": page.name, "base": base, "scored": scored,
+                                     "pick": None, "drift": None, "conf": None}) + "\n")
+                fh.flush()
+                continue
             best_conf = max(s[2] for s in known)
             pool = [s for s in known if s[2] >= best_conf - args.conf_budget]
             pick = min(pool, key=lambda s: s[1]) if pool else None
@@ -115,7 +131,10 @@ def main(argv=None) -> int:
             if i % 50 == 0:
                 print(f"{i}/{len(pages)} changed {len(changed)}", file=sys.stderr, flush=True)
     if args.apply:
-        (scans / "rectified_pages.txt").write_text("\n".join(changed) + "\n")
+        all_changed = set(changed)
+        if args.resume and (scans / "rectified_pages.txt").exists():
+            all_changed |= set((scans / "rectified_pages.txt").read_text().split())
+        (scans / "rectified_pages.txt").write_text("\n".join(sorted(all_changed)) + "\n")
     print(f"{len(changed)} pages improved, {skipped} skipped as already rectangular")
     return 0
 
