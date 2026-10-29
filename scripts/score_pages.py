@@ -82,6 +82,11 @@ def main(argv=None) -> int:
             continue
         s = args.side / max(im.shape[:2])
         small = cv2.resize(im, (int(im.shape[1] * s), int(im.shape[0] * s)))
+        # 1600 px, INTER_LINEAR: the scale and resample the pipeline itself uses to
+        # decide orientation, so the score cannot disagree with the decision.
+        s2 = 1600 / max(im.shape[:2])
+        orient_small = cv2.resize(im, (int(im.shape[1] * s2), int(im.shape[0] * s2)),
+                                  interpolation=cv2.INTER_LINEAR) if s2 < 1 else im
         v = vertical_drift(small)
         rows.append({
             "page": f.name,
@@ -90,7 +95,7 @@ def main(argv=None) -> int:
             "rules": v["rules"],
             "band": round(band_frac(im), 3),
             "cut_lines": cut_lines(im),
-            "rot": detect_rotation(small),
+            "rot": detect_rotation(orient_small),
         })
 
     bows = [r["bow"] for r in rows if r["bow"] is not None]

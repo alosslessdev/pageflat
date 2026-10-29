@@ -91,6 +91,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="concurrent images inside one process; keeps the GPU busy "
                          "while the CPU decodes/encodes the neighbouring images")
     ap.add_argument("--json", help="write a JSON report of all results here")
+    ap.add_argument("--no-edge-shear", action="store_true",
+                    help="do not shear rows to straighten the sheet's own edge")
+    ap.add_argument("--no-tilt", action="store_true",
+                    help="do not rotate out the lean of the page's vertical structure")
     ap.add_argument("--resume", action="store_true",
                     help="skip sources that already have output in --out, so an "
                          "interrupted long run can be restarted without duplicating pages")
@@ -107,6 +111,8 @@ def main(argv: list[str] | None = None) -> int:
         pick_metric=args.pick_metric,
         use_depth=not args.no_depth,
         paper_reach=args.paper_reach,
+        straighten_edges=not args.no_edge_shear,
+        fix_tilt=not args.no_tilt,
         save_debug=args.debug,
         gpu_path=args.gpu_path,
         gpu_batch=max(1, args.gpu_batch),
