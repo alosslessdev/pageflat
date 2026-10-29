@@ -218,17 +218,11 @@ def _tilt_final(page: np.ndarray) -> np.ndarray:
     """
     from .vlines import rectify as _vrect
 
-    # Twice: the rotation converges slowly because the rule set changes as the
-    # page turns. Measured on 45 finished pages, the median tilt goes 1.15 -> 0.87
-    # -> 0.79 deg over two passes, and the pages above 1 deg 24 -> 20 -> 14. One
-    # pass costs ~0.4 s.
-    out = page
-    for _ in range(2):
-        nxt, info = _vrect(out)
-        if not info.get("corrected"):
-            break
-        out = nxt
-    return out
+    # One pass. Two were measured offline as 1.15 -> 0.87 -> 0.79 deg on the same
+    # pages, but in the pipeline (it3) they left the median at 1.17 against 1.10
+    # with one, at twice the runtime. The offline gain does not survive the run.
+    out, info = _vrect(page)
+    return out if info.get("corrected") else page
 
 
 def _orient_final(page: np.ndarray, detector) -> tuple[np.ndarray, int]:

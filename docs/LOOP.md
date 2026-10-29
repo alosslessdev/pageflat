@@ -50,6 +50,7 @@ the iteration fails with a CUDA OOM that looks like a code bug.
 | out100_v5 (baseline) | 153 | 0.05 % | 0 | 1.36° | 89 | 48 | 69 | 25 (at 1400 px) |
 | **it1** (tilt rotation + split guard) | 127 | **0.04 %** | **0** | **1.13°** | **64** | **45** | **46** | **5** (at 1600 px) |
 | **it2** (tilt twice, with per-row shear) | 130 | **0.04 %** | **0** | **1.10°** (p90 3.64) | **66** | **47** | **49** | **4** |
+| **it3** (two vertical passes at save) | 128 | **0.04 %** | **0** | 1.17° (p90 3.87) | 68 | **39** | **46** | **3** |
 
 The page count drops from 153 to 127 because the split guard refuses cuts that land inside a
 page: fewer half-pages, and the first is a complete spread instead of two damaged halves.
@@ -77,7 +78,10 @@ and bow separately: on it2 the vertical **bow is 0.05 % median, p90 0.11 %** —
 negligible — while the **lean is 1.10 deg** with 66 pages above 1 deg. So what is left is
 rotation, not bow, and the rotation just converges slowly: over 45 finished pages the median
 goes 1.15 -> 0.87 -> 0.79 deg across two extra passes, pages above 1 deg 24 -> 20 -> 14. Two
-passes are now applied at save time.
+passes were then tried in a full run (it3) and **did not survive it**: median tilt 1.17 against
+1.10 with one pass, at twice the runtime, while the background band improved to 39 and cut
+lines to 46. The second pass is therefore reverted — a dead end, recorded so it is not
+retried.
 
 ## What is fixed
 
