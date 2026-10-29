@@ -202,3 +202,11 @@ all four: `IMG_20260129_202334`, `IMG_20260506_224356`, `IMG_20260506_224646` an
 
 The save-time check is kept as well — it is the one that cannot disagree with the pixels that
 get written — but it is no longer the only one.
+
+### The three contradictory pages: ask a different model
+
+Also fixed. When the OCR-scored detector returns the same angle for a page *and* for that
+page rotated by it, the answer cannot be acted on; the code now asks docTR's page-orientation
+classifier instead, and if that disagrees it uses it, otherwise it leaves the page alone
+rather than rotating on an answer the detector itself contradicts. All three —
+`IMG_20260506_224606`, `IMG_20260506_224643`, `IMG_20260506_225358` — come out at `needs 0`.
