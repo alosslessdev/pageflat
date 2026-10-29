@@ -223,7 +223,14 @@ drawing stroke is isolated — the same 143 measurable pages give:
 | **all** | **143** | **0.15 %** | **0** |
 
 Five pages have no text-line block at all (pure photographs) and are not measurable
-this way; they need the sheet-edge measure instead.
+this way.
+
+**Edge-based measurement does not rescue them.** Traced on the sheet's own boundary it
+gives absurd numbers on a real photograph (`IMG_20260613_192849`: 3126 px on the right
+edge) because the paper mask picks up whatever is light and neutral on the table; traced
+on the printed area instead it gives 292-933 px because that area is not a rectangle on a
+graphic page. A straight-edge ruler only works when a sheet is photographed alone on a
+plain surface with rectangular print — not on this material.
 
 Worst measurable page 1.35 %. Against the goal (median ≤ 1 %, none above 3 %) the pages pass
 with an order of magnitude to spare.
