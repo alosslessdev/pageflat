@@ -28,6 +28,7 @@ class Settings:
     route_url: str = ""            # llama-server with a Clef model, optional
     trim_background: bool = False  # opt-in: drop saturated background (bed sheets, table cloth)
     trim_edges: bool = True         # take the strip of table / neighbour off the frame edge
+    straighten_edges: bool = True   # shear rows so the sheet's own edge is a straight line
     dewarp: str = "doctr"               # doctr | uvdoc | best | none
     illum_mode: str = "classical"       # classical | doctr | none
     split_spreads: bool = True
@@ -432,6 +433,11 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
             try:
                 if settings.deskew:
                     rect, _ = orientation.deskew(rect, max_angle=10.0)
+                    if settings.straighten_edges:
+                        from .edges import straighten_edge
+
+                        rect, _ei = straighten_edge(rect, side="left")
+                        res.pick["edge_shear"] = _ei
                 if settings.illum_mode == "doctr":
                     rect = detector.illuminate(rect)
                 if settings.trim_background:
@@ -631,6 +637,11 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
 
             if settings.deskew:
                 rect, _ = orientation.deskew(rect, max_angle=10.0)
+            if settings.straighten_edges:
+                from .edges import straighten_edge
+
+                rect, _edge_info = straighten_edge(rect, side="left")
+                res.pick["edge_shear"] = _edge_info
 
             # the sheet is flat now; what is left is the paper's own bow, which
             # only the text lines can measure — and a picture has no lines to
