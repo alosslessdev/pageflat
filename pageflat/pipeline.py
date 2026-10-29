@@ -442,6 +442,13 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                         page = gpu_ops.scan_finish_gpu(page, device=dev)
                     elif settings.illum_mode == "doctr":
                         page = illum.auto_contrast(page)
+                    # strip of table / neighbouring page at the frame edge; the
+                    # GPU path needs its own copy of this, as it has its own loop
+                    if settings.trim_edges:
+                        from .crop import trim_borders
+
+                        page, edge_info = trim_borders(page)
+                        res.trim = edge_info
                     content_ok, m_content = quality.content_checks(
                         page, settings.min_ink, settings.min_lines)
                     res.content = {**m_surface, **m_content}
