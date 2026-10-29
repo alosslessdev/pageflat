@@ -357,3 +357,27 @@ this properly needs an orientation model trained on this material rather than OC
 
 The remaining 50 background bands are mostly the pages' own coloured borders, which the
 trim correctly refuses to cut; a minority is background wider than the 15 % bound.
+
+## Final verification of all three defects (clean run)
+
+Same 100 Clef-selected sources, 100 accepted, 153 pages:
+
+| defect | first run | final run |
+|---|---|---|
+| pages misoriented | 34 / 148 (23 %) | **2 / 153 (1.3 %)** |
+| pages with a > 50 % background band | 102 / 148 (69 %) | **48 / 153 (31 %)** |
+| line bow, median | 0.15 % | **0.05 %** |
+| line bow, pages above 3 % | 0 | **0** (112 measurable, 41 without a text grid) |
+
+Two of the fixes turned on details that are worth keeping in mind, because each looked
+finished before it was:
+
+* the **interpolation** decides the orientation verdict. `detect_rotation` scores OCR of
+  four rotations, and resampling the page with INTER_AREA instead of INTER_LINEAR was
+  enough to flip a 180-degree page to "upright". The pipeline now resamples the way the
+  measurement does.
+* **the disk matters**. A run with `/tmp` at 99 % produced 326 `libpng error: Write Error`
+  lines and still reported pages; the numbers above come from a rerun with 5.7 GB free.
+
+The 48 remaining background bands are mostly the pages' own coloured borders, which the
+trim correctly refuses to cut.
