@@ -38,6 +38,8 @@ class Settings:
     paper_reach: float = 0.0            # >0: reach past a crop that cut into the text
     content_route: bool = False         # classify the page and pick a strategy
     use_depth: bool = True              # include the monocular-depth candidate in "best"
+    use_aligner: bool = True            # DocAligner corners first, mask as fallback
+    aligner_conf: float = 0.4
     pick_metric: str = "ocr"            # "bow": choose the straightest candidate without OCR
     route_url: str = ""                 # clef (llama-server) endpoint for the classifier
     line_straighten: bool = True        # word-line bow removal (kept only if OCR agrees)
@@ -132,6 +134,18 @@ def rectified_sheets(img: np.ndarray, detector, settings: Settings
     then clipped whichever sheet sat further inside the hull.
     """
     small, scale = resize_long_side(img, settings.mask_work_side)
+    if settings.use_aligner:
+        # a trained corner regressor beats a mask hull on cluttered tables; it
+        # also says how sure it is, so a bad frame is refused instead of guessed
+        from . import align
+        found = align.corners(img, min_conf=settings.aligner_conf)
+        if found is not None:
+            quad, conf = found
+            quad = perspective.expand_quad(quad, settings.quad_margin, img.shape)
+            rect = perspective.warp_sheet(img, quad, max_side=settings.max_intermediate)
+            res_quad = quad.astype(np.float32)
+            area = abs(cv2.contourArea(quad)) / float(img.shape[0] * img.shape[1])
+            return [(rect, res_quad, area, 1.0)]
     mask = detector.page_mask(small)
     if not mask.any():
         return []
