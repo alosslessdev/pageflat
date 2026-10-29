@@ -45,11 +45,23 @@ the iteration fails with a CUDA OOM that looks like a code bug.
 
 ## Numbers
 
-| run | bow med | bow >3 % | tilt med | tilt >1° | band >0.5 | cut lines | misoriented |
-|---|---|---|---|---|---|---|---|
-| out100 (pre-fixes) | 0.15 % | 0 | — | — | 102/148 | — | 34/148 |
-| out100_v5 | 0.05 % | 0 | 1.36° (p90 4.0) | 89/143 | 48/153 | — | 2/153 |
-| **baseline for this loop** | see `score_before.json` | | | | | | |
+| run | pages | bow med | bow >3 % | tilt med | tilt >1° | band >0.5 | cut lines | misoriented |
+|---|---|---|---|---|---|---|---|---|
+| out100_v5 (baseline) | 153 | 0.05 % | 0 | 1.36° | 89 | 48 | 69 | 25 (at 1400 px) |
+| **it1** (tilt rotation + split guard) | 127 | **0.04 %** | **0** | **1.13°** | **64** | **45** | **46** | **5** (at 1600 px) |
+
+The page count drops from 153 to 127 because the split guard refuses cuts that land inside a
+page: fewer half-pages, and the first is a complete spread instead of two damaged halves.
+The `misoriented` row is only comparable when measured at the same scale — the scorer now
+uses the pipeline's own 1600 px / INTER_LINEAR.
+
+Iteration 1 changed three things and each is visible: tilt median 1.36 -> 1.13 and pages
+above 1 deg 89 -> 64 (the rotation); cut lines 69 -> 46 (the split guard); band 48 -> 45.
+
+**Next**: the tilt is measured at 1.13 deg after correction although the rotation alone
+measured 1.64 -> 0.17 on the same pages offline. The difference is that the pipeline applies
+it before the split and the warps, where the rules are fewer; applying it once more to each
+finished page, and measuring whether that second pass helps, is the obvious next experiment.
 
 ## What is fixed
 
