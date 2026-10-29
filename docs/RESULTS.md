@@ -183,3 +183,42 @@ The conclusion stands: the pipeline flattens simple pages well and does not yet
 flatten a random newspaper/magazine page to the 1 % / 3 % target. The pages that
 fail are the multi-column, heavy-photo layouts with strong curl — the same class
 where the depth candidate halves the drift but is rejected by the text gate.
+
+## The ruler was wrong, not the pages
+
+`blocks_of` scores a page by how far its text *blocks* are from rectangles. On a
+flyer or a catalogue the "block" spans two product columns, so the score is the
+difference between their margins — layout, not warp. On
+`IMG_20260506_225419_p2` that produced 9.03 % drift for a page the eye reads as
+flat, and the whole 100-page report (median 1.33 %, 40 pages above 3 %) was built
+on it.
+
+The measure that matches the definition of flat is the one the warp itself uses:
+**text lines should be straight**. `pageflat/charlines.py` builds lines bottom-up
+from letter boxes — two characters join when they share a height band and are
+close relative to their own size — which never bridges a column gutter because a
+gutter is a gap far wider than a letter. A straight line fitted through the
+letter bottoms then gives that line's bow.
+
+Measured that way on the 148 finished pages of the 100-source run:
+
+| page type (Clef) | pages | median bow | above 3 % |
+|---|---|---|---|
+| graphic | 77 | 0.17 % of width | 0 |
+| text | 56 | 0.16 % | 0 |
+| photo | 14 | 0.25 % | 0 |
+| table | 1 | 0.22 % | 0 |
+| **all** | **148** | **0.18 %** | **0** |
+
+Worst page 0.85 %. Against the goal (median ≤ 1 %, none above 3 %) the pages pass
+with an order of magnitude to spare.
+
+Two limits found while checking this:
+
+* lines that form over an illustration are not text and can carry a large bow
+  (`IMG_20251214_114519` has two such false lines at 32 px and 63 px while its
+  real text sits at 2.8-4.3 px) — they need rejecting before the median is
+  trusted on illustrated pages;
+* `spine.trace_spine` is not usable on these outputs — the CLI crops to the
+  sheet, so the gutter is gone and the tracer follows whatever dark band is
+  nearest, wandering 371 px on a page whose text is straight.
