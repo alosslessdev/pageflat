@@ -111,9 +111,22 @@ def main(argv=None) -> int:
               file=sys.stderr, flush=True)
         try:
             # a single pathological image can hang a pool worker forever, and
-            # `pool.map` has no timeout of its own: bound the chunk instead
-            rc = subprocess.call(cmd, cwd=str(Path(__file__).resolve().parents[1]),
-                                 timeout=args.chunk_timeout)
+            # `pool.map` has no timeout of its own. The child gets its own
+            # session so a timeout can kill the whole tree — killing only the
+            # parent leaves the pool workers holding the pipe and the wait
+            # never returns.
+            proc = subprocess.Popen(cmd, cwd=str(Path(__file__).resolve().parents[1]),
+                                    start_new_session=True)
+            try:
+                rc = proc.wait(timeout=args.chunk_timeout)
+            except subprocess.TimeoutExpired:
+                import os
+                import signal
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except Exception:
+                    proc.kill()
+                raise
         except subprocess.TimeoutExpired:
             print(f"[{time.strftime('%H:%M:%S')}] chunk {i // args.chunk} timed out after "
                   f"{args.chunk_timeout}s; skipping its sources", file=sys.stderr, flush=True)
@@ -133,9 +146,22 @@ def main(argv=None) -> int:
               file=sys.stderr, flush=True)
         try:
             # a single pathological image can hang a pool worker forever, and
-            # `pool.map` has no timeout of its own: bound the chunk instead
-            rc = subprocess.call(cmd, cwd=str(Path(__file__).resolve().parents[1]),
-                                 timeout=args.chunk_timeout)
+            # `pool.map` has no timeout of its own. The child gets its own
+            # session so a timeout can kill the whole tree — killing only the
+            # parent leaves the pool workers holding the pipe and the wait
+            # never returns.
+            proc = subprocess.Popen(cmd, cwd=str(Path(__file__).resolve().parents[1]),
+                                    start_new_session=True)
+            try:
+                rc = proc.wait(timeout=args.chunk_timeout)
+            except subprocess.TimeoutExpired:
+                import os
+                import signal
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except Exception:
+                    proc.kill()
+                raise
         except subprocess.TimeoutExpired:
             print(f"[{time.strftime('%H:%M:%S')}] chunk {i // args.chunk} timed out after "
                   f"{args.chunk_timeout}s; skipping its sources", file=sys.stderr, flush=True)
