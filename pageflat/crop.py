@@ -116,7 +116,7 @@ def trim_borders(img: np.ndarray, max_frac: float = 0.15, need_paper: float = 0.
     if verify and big:
         from .pipeline import ocr_quality
 
-        before, after = ocr_quality(img), ocr_quality(out)
+        before, after = ocr_quality(img, max_side=900), ocr_quality(out, max_side=900)
         if before and after is not None and after < min_gain * before:
             info["rejected"] = "ocr"
             info["trimmed"] = False

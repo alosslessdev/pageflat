@@ -214,10 +214,10 @@ def _orient_final(page: np.ndarray, detector) -> tuple[np.ndarray, int]:
     text, so it is used as the second opinion — and only for the pages the fast
     one wants to turn, which is a quarter of them.
     """
-    # The OCR-scored detector, not the thumbnail classifier: the classifier can
-    # be confident and wrong on half a spread, and rotating on a wrong confident
-    # answer is worse than leaving the page alone. This one reads the text, and on
-    # the 148-page set it agreed with the eye on every page checked.
+    # The OCR-scored detector, on every page. Trusting the thumbnail classifier
+    # when it says "upright" was tried and is not safe: on four pages it called a
+    # sideways page upright, and the output kept 90 and 180 degree rotations. The
+    # classifier is only a hint; the text decides.
     h, w = page.shape[:2]
     small = page
     if max(h, w) > 1600:
