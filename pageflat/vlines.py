@@ -89,7 +89,7 @@ def vertical_drift(img_bgr: np.ndarray) -> dict:
 
 
 def rectify(img_bgr: np.ndarray, smoothing: int = 15,
-             shear: bool = False) -> tuple[np.ndarray, dict]:
+             shear: bool = True) -> tuple[np.ndarray, dict]:
     """Undo the vertical lean: shift each row so the rules stand up straight.
 
     Every rule says, for each row it crosses, how far it sits from where a
@@ -169,9 +169,6 @@ def rectify(img_bgr: np.ndarray, smoothing: int = 15,
         counts[y:y + bh] += 1
 
     if not shear:
-        # The rotation is calibrated; the per-row shear is not. Keeping it off by
-        # default until it is measured against a known deformation.
-        lean = 0.0
         if abs(tilt) > 0.2:
             return img_bgr, {"corrected": True, "rules": len(rules), "lean": 0.0,
                              "tilt_deg": round(tilt, 2)}
