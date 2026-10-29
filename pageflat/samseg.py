@@ -29,6 +29,47 @@ class SamPageSegmenter:
         self.predictor = SamPredictor(sam)
         self.device = device
 
+    def sheet_mask(self, img_bgr: np.ndarray, prior: np.ndarray,
+                   grid: int = 3, max_side: int = 1024) -> Optional[np.ndarray]:
+        """The whole sheet, prompted by a grid inside a coarse page mask.
+
+        A single point makes SAM answer "the object under this point", which on an
+        open book is one page, or a leaf on it. A grid of points spread across the
+        rough region asks for the thing they all sit on, and the highest-scoring
+        mask is then the sheet: on a book lying on a duvet that mask covers both
+        pages at 0.98 and excludes the bedding.
+
+        Unlike `mask`, this returns the best-scoring candidate rather than the
+        smallest: here the sheet *is* the large object, and the small ones are the
+        pages it is made of.
+        """
+        h, w = img_bgr.shape[:2]
+        ys, xs = np.where(prior >= 0.5)
+        if xs.size < 100:
+            return None
+        x0, x1 = float(xs.min()), float(xs.max())
+        y0, y1 = float(ys.min()), float(ys.max())
+        pts = []
+        for iy in range(grid):
+            for ix in range(grid):
+                fx = (ix + 1) / (grid + 1)
+                fy = (iy + 1) / (grid + 1)
+                pts.append([x0 + fx * (x1 - x0), y0 + fy * (y1 - y0)])
+
+        scale = min(1.0, max_side / float(max(h, w)))
+        small = cv2.resize(img_bgr, (int(w * scale), int(h * scale)),
+                           interpolation=cv2.INTER_AREA) if scale < 1 else img_bgr
+        self.predictor.set_image(cv2.cvtColor(small, cv2.COLOR_BGR2RGB))
+        masks, scores, _ = self.predictor.predict(
+            point_coords=np.array(pts, np.float32) * scale,
+            point_labels=np.ones(len(pts), np.int32),
+            multimask_output=True)
+        if masks is None or len(masks) == 0:
+            return None
+        best = masks[int(np.argmax(scores))]
+        out = cv2.resize(best.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
+        return out.astype(np.float32)
+
     def mask(self, img_bgr: np.ndarray, points: Sequence[Sequence[int]],
              box: Optional[Sequence[int]] = None, prior: Optional[np.ndarray] = None,
              max_side: int = 1024) -> Optional[np.ndarray]:

@@ -54,7 +54,11 @@ def _deviation(curve: np.ndarray, step: int = 2) -> float:
     t = np.arange(curve.size) * step
     A = np.stack([t, np.ones_like(t)], 1)
     coef, *_ = np.linalg.lstsq(A, curve, rcond=None)
-    return float(np.percentile(np.abs(curve - A @ coef), 95))
+    resid = np.abs(curve - A @ coef)
+    # The median, not a high percentile: a fanned page has a genuinely ragged
+    # outline, and one notch would then stand for the whole edge. The median asks
+    # how far the edge sits from a straight line for most of its length.
+    return float(np.median(resid))
 
 
 def _edge(mask: np.ndarray, side: str, border: int = 4) -> float | None:

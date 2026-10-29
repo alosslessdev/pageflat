@@ -265,6 +265,14 @@ to its content was called "isolated" rather than "fills". Fine visual judgements
 which of a sheet's four edges are visible are beyond a 4-bit decision model, so the
 question was removed rather than shipped as a gate.
 
-The edge ruler therefore stays blocked on a trustworthy sheet mask. SAM is the right tool
-but not with these prompts: a single point produced 26 % coverage (part of one page) and a
-box prompt 11 %, neither of which is the sheet, so its "edges" were internal lines.
+The edge ruler needed a trustworthy sheet mask, and **SAM was not the problem — the prompt
+and the selection were.** Asked with one point, SAM answers "the object under this point":
+on an open book that is one page (25 % of the frame) or a leaf on it (1 %, 0.3 %), and
+`SamPageSegmenter.mask` deliberately keeps the *smallest* confident candidate, which is right
+for picking a page out of a pile and wrong for finding the sheet. Asked with a 3x3 grid of
+points spread inside the coarse mask, the sheet comes back at score 0.98 covering 58 % of
+the frame — both pages, bedding excluded (`SamPageSegmenter.sheet_mask`).
+
+With that mask, edge drift on the raw photos reads 13-25 % of width, which is the physical
+drape of a newspaper over a duvet rather than a measurement artefact, and a scan cropped to
+its content still refuses to answer.
