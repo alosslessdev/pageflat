@@ -141,16 +141,19 @@ def rectify(img_bgr: np.ndarray, smoothing: int = 15,
         img_bgr = cv2.warpAffine(img_bgr, M, (w, h), flags=cv2.INTER_CUBIC,
                                  borderMode=cv2.BORDER_REPLICATE)
 
-    m = stroke_mask(img_bgr)
-    k = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(5, int(0.01 * h))))
+    # All detection happens on the small copy; only the remap is full resolution.
+    # `stroke_mask`'s median filter on a 3508-px page costs tens of seconds.
+    sh, sw = small.shape[:2]
+    m = stroke_mask(small)
+    k = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(5, int(0.01 * sh))))
     vert = cv2.morphologyEx(m, cv2.MORPH_OPEN, k)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(vert, 8)
 
-    offsets = np.zeros(h, float)
-    counts = np.zeros(h, float)
+    offsets = np.zeros(sh, float)
+    counts = np.zeros(sh, float)
     for i in range(1, n):
         x, y, bw, bh, area = stats[i]
-        if bh < 0.06 * h or bw > 0.02 * w:
+        if bh < 0.06 * sh or bw > 0.02 * sw:
             continue
         xs = np.full(bh, np.nan)
         for j in range(bh):
@@ -173,12 +176,14 @@ def rectify(img_bgr: np.ndarray, smoothing: int = 15,
             return img_bgr, {"corrected": True, "rules": len(rules), "lean": 0.0,
                              "tilt_deg": round(tilt, 2)}
     live = counts > 0
-    if live.sum() < 0.2 * h:
+    if live.sum() < 0.2 * sh:
         return img_bgr, {"corrected": False, "rules": len(rules)}
-    dx = np.zeros(h, float)
+    dx = np.zeros(sh, float)
     dx[live] = offsets[live] / counts[live]
-    dx = np.interp(np.arange(h), np.flatnonzero(live), dx[live])
+    dx = np.interp(np.arange(sh), np.flatnonzero(live), dx[live])
     dx = cv2.GaussianBlur(dx.reshape(-1, 1), (1, max(3, smoothing | 1)), 0).ravel()
+    if sh != h:                      # back to the input frame
+        dx = cv2.resize(dx.reshape(-1, 1), (1, h), interpolation=cv2.INTER_LINEAR).ravel() / scale
 
     lean = float(np.percentile(np.abs(dx), 90))
     if lean < 1.0:

@@ -58,10 +58,14 @@ uses the pipeline's own 1600 px / INTER_LINEAR.
 Iteration 1 changed three things and each is visible: tilt median 1.36 -> 1.13 and pages
 above 1 deg 89 -> 64 (the rotation); cut lines 69 -> 46 (the split guard); band 48 -> 45.
 
-**Next**: the tilt is measured at 1.13 deg after correction although the rotation alone
-measured 1.64 -> 0.17 on the same pages offline. The difference is that the pipeline applies
-it before the split and the warps, where the rules are fewer; applying it once more to each
-finished page, and measuring whether that second pass helps, is the obvious next experiment.
+**Iteration 2 (in progress in this transcript)**: the vertical pass now runs on the finished
+page and includes the per-row shear, and the shear's detection was moved onto a 1400-px copy
+because `stroke_mask`'s median filter on a 3508-px page cost tens of seconds per page (which
+is why an iteration slowed to 35-66 s/page). Measured on it1's output over 57 pages,
+`rectify(shear=True)` takes the median tilt 1.29 -> 0.95 deg, p90 3.19 -> 2.71, pages above
+1 deg 37 -> 27, where a second rotation alone left p90 worse.
+
+Smoke test of the whole pipeline on the page that measured 4.58 deg: now 0.70 deg.
 
 ## What is fixed
 
