@@ -49,6 +49,7 @@ the iteration fails with a CUDA OOM that looks like a code bug.
 |---|---|---|---|---|---|---|---|---|
 | out100_v5 (baseline) | 153 | 0.05 % | 0 | 1.36° | 89 | 48 | 69 | 25 (at 1400 px) |
 | **it1** (tilt rotation + split guard) | 127 | **0.04 %** | **0** | **1.13°** | **64** | **45** | **46** | **5** (at 1600 px) |
+| **it2** (tilt twice, with per-row shear) | 130 | **0.04 %** | **0** | **1.10°** (p90 3.64) | **66** | **47** | **49** | **4** |
 
 The page count drops from 153 to 127 because the split guard refuses cuts that land inside a
 page: fewer half-pages, and the first is a complete spread instead of two damaged halves.
@@ -66,6 +67,15 @@ is why an iteration slowed to 35-66 s/page). Measured on it1's output over 57 pa
 1 deg 37 -> 27, where a second rotation alone left p90 worse.
 
 Smoke test of the whole pipeline on the page that measured 4.58 deg: now 0.70 deg.
+
+**it2 result: tilt 1.13 -> 1.10, p90 3.79 -> 3.64.** Much less than the 1.29 -> 0.95 that the
+same correction achieved on it1's finished pages. The reason is visible in the numbers: the
+pipeline already applies the rotation before the split, so the second pass has only the
+residual bow left, and a rotation plus a rule-driven shear cannot remove a bow that is not
+in the rules. **The remaining 1.1 deg median is bow, not lean** — the next method has to
+displace the image from the page's own content curve (the text lines already do this
+horizontally; the vertical equivalent would be the column edges' curvature, not their
+straightness).
 
 ## What is fixed
 
