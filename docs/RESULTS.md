@@ -332,3 +332,28 @@ confident and wrong on half a spread: on `IMG_20260506_224449` it called both ha
 down, and rotating on that answer left one of them wrong. Requiring the two detectors to
 agree did not help, because on that half they agreed and were both wrong. The OCR-scored
 detector reads the text, costs about 2 s, and got 5 of 5 pages right on the re-run.
+
+## The three fixes, measured together
+
+A fresh run of the same 100 Clef-selected sources with the edit trim and the save-time
+orientation (150 pages, 100 accepted):
+
+| defect | before | after |
+|---|---|---|
+| pages misoriented | 34 / 148 (23 %) | **15 / 150 (10 %)** |
+| pages with a > 50 % background band | 102 / 148 (69 %) | **50 / 150 (33 %)** |
+| line bow, median | 0.15 % | **0.05 %** |
+| line bow, pages above 3 % | 0 | **0** (110 measurable, 40 without a text grid) |
+
+So the flattening is unchanged where it was already good and the median improved 3x, the
+crop defect roughly halved, and orientation improved by more than half but is not clean.
+
+**What is still wrong, and why.** Fifteen pages keep a rotation the detector did not ask
+for. `orientation.detect_rotation` scores four rotations with tesseract, and on a flyer
+whose panels are graphic rather than prose it can prefer a wrong rotation with confidence;
+its answer also changes with the scale it is asked at (1200 px got two of five test pages
+wrong, 1600 px none), so the current 1600 px is a tuned constant, not a principle. Fixing
+this properly needs an orientation model trained on this material rather than OCR scoring.
+
+The remaining 50 background bands are mostly the pages' own coloured borders, which the
+trim correctly refuses to cut; a minority is background wider than the 15 % bound.
