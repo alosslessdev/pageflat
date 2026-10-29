@@ -381,3 +381,16 @@ finished before it was:
 
 The 48 remaining background bands are mostly the pages' own coloured borders, which the
 trim correctly refuses to cut.
+
+## The corpus run
+
+Launched over all 5,737 source images of 40 MP or more, output to
+`/run/media/asdf/db69437b-.../corpus_pages` with `--dewarp best --long-side 3508
+--gpu-path --threads 4`, progress in `corpus_pages/run.log` and a JSON report alongside.
+At the observed 14 s/page on the heavier pages this is a ~20 h job; the pipeline is at
+80-90 % GPU in its busy phases and the disk has 165 GB free for roughly 80 GB of output.
+
+Clef triage of all 5,737 was started and **abandoned**: at 0.19-0.35 images/s it needed
+8 h to decide what the pipeline's own content gate decides for free while it works, and
+it holds the GPU. The page/not-page question is worth a classifier when the classifier is
+cheap; here it is the expensive part.

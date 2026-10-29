@@ -74,7 +74,11 @@ QUESTION = QUESTIONS["page"]
 
 
 def encode(path: str, side: int = 320) -> str | None:
-    img = cv2.imread(path)
+    # Decode at 1/8 for the thumbnail: a 64 MP JPEG takes ~1.5 s at full size and
+    # ~80 ms at 1/8, and the classifier looks at 320 px either way.
+    img = cv2.imread(path, cv2.IMREAD_REDUCED_COLOR_8)
+    if img is None:
+        img = cv2.imread(path)
     if img is None:
         return None
     h, w = img.shape[:2]
