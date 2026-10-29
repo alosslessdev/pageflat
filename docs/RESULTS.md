@@ -394,3 +394,22 @@ Clef triage of all 5,737 was started and **abandoned**: at 0.19-0.35 images/s it
 8 h to decide what the pipeline's own content gate decides for free while it works, and
 it holds the GPU. The page/not-page question is worth a classifier when the classifier is
 cheap; here it is the expensive part.
+
+### Handoff for the corpus run
+
+When `corpus_pages` finishes (or is interrupted and resumed), the rest of the chain is:
+
+```
+# resume the flatten from wherever it stopped
+python -m pageflat.cli --list ~/pagedewarp/work/corpus_inventory.txt \
+    -o /run/media/asdf/db69437b-.../corpus_pages --dewarp best --long-side 3508 \
+    --gpu-path --threads 4 --resume
+
+# OCR -> document grouping -> searchable PDFs (verified on a 147-page set,
+# 1 unreadable page, real text layer)
+PATH=~/pagedewarp/.venv/bin:$PATH bash scripts/make_documents.sh \
+    /run/media/asdf/db69437b-.../corpus_pages 4
+```
+
+`make_documents.sh` needs the venv on PATH (it shells out to python) and reads `.png`
+as well as `.jpg`.
