@@ -154,3 +154,32 @@ page. On 334 camera-roll images of 40 MP or more: **median page probability
 does not admit illustrations. The 100-image sampling that skipped this step had
 63 of 103 pages with no OCR text, because a share of the "pages" were anime
 illustrations.
+
+## The 100-page sample does not meet the goal
+
+The 16-page source benchmark above ends at a median of 0.79 % with no page above
+3 %. That sample was drawn from the crop corpus, which is already the flatter
+end of the material. A random 100-page sample of the camera roll, selected by
+Clef rather than by resolution, says something else — measured on the finished
+pages at 3508 px:
+
+| ruler | median drift | pages above 3 % |
+|---|---|---|
+| every block | 1.33 % of width | **40** of 147 |
+| excluding blocks spanning > 80 % of the width | 1.14 % | **30** of 147 |
+
+So **the goal is not met on a representative sample**: the median is above 1 %
+and thirty pages are still clearly bent.
+
+The full-width blocks are partly a ruler defect, not a page defect: on a
+two-column page a block that merges both columns is scored on the difference
+between their two left margins, and that is layout, not warp. On four of the five
+worst pages the error comes entirely from blocks spanning > 80 % of the width
+(e.g. `IMG_20260506_225045_p1`, a 393 px error from an eleven-line block that
+covers both columns). Excluding them removes ten of the forty violations, which
+is why the corrected number is still 1.14 % and not zero.
+
+The conclusion stands: the pipeline flattens simple pages well and does not yet
+flatten a random newspaper/magazine page to the 1 % / 3 % target. The pages that
+fail are the multi-column, heavy-photo layouts with strong curl — the same class
+where the depth candidate halves the drift but is rejected by the text gate.
