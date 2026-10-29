@@ -51,6 +51,7 @@ the iteration fails with a CUDA OOM that looks like a code bug.
 | **it1** (tilt rotation + split guard) | 127 | **0.04 %** | **0** | **1.13°** | **64** | **45** | **46** | **5** (at 1600 px) |
 | **it2** (tilt twice, with per-row shear) | 130 | **0.04 %** | **0** | **1.10°** (p90 3.64) | **66** | **47** | **49** | **4** |
 | **it3** (two vertical passes at save) | 128 | **0.04 %** | **0** | 1.17° (p90 3.87) | 68 | **39** | **46** | **3** |
+| **it4** (edge shear with the sign fixed, tilt off) | 129 | **0.04 %** | **0** | 1.15° (p90 3.74) | 65 | 43 | **43** | 7 |
 
 The page count drops from 153 to 127 because the split guard refuses cuts that land inside a
 page: fewer half-pages, and the first is a complete spread instead of two damaged halves.
@@ -164,3 +165,7 @@ inward at the top.
 Same class of bug as the tilt rotation, and the same lesson: a displacement measured against
 a reference has to be applied *towards* it, and that direction has to be checked against a
 known case rather than assumed.
+
+**it4** runs it in the pipeline: cut lines reach their best value (43, from 69 at baseline)
+and the band improves to 43. The rule-based tilt is now reported for what it is — content
+design, not page lean — and `fix_tilt` is off.

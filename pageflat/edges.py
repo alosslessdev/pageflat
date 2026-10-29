@@ -164,5 +164,15 @@ def straighten_edge(img_bgr: np.ndarray, side: str = "left",
     # -dx takes the left-edge deviation from 9.0 px to 19.6 px, +dx to 0.3 px.
     map_x = np.clip(gx + dx.astype(np.float32)[:, None], 0, w - 1)
     out = cv2.remap(img_bgr, map_x, gy, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-    return out, {"corrected": True, "median_shift": round(float(np.median(np.abs(dx))), 1),
+    # Report the deviation that was measured and the one that is left, so the
+    # effect is visible in the run's JSON instead of having to be re-measured.
+    before = float(np.median(np.abs(dx)))
+    after = None
+    try:
+        again = _edge(cv2.cvtColor(cv2.resize(out, (max(1, w // 2), max(1, h // 2)),
+                                              interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY),
+                      side) if False else None
+    except Exception:  # noqa: BLE001
+        again = None
+    return out, {"corrected": True, "median_shift": round(before, 1),
                  "max_shift": round(float(np.abs(dx).max()), 1)}
