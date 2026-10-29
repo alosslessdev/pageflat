@@ -169,3 +169,25 @@ known case rather than assumed.
 **it4** runs it in the pipeline: cut lines reach their best value (43, from 69 at baseline)
 and the band improves to 43. The rule-based tilt is now reported for what it is — content
 design, not page lean — and `fix_tilt` is off.
+
+### The orientation regression in it4: 7 pages, two different causes
+
+it4 has 7 misoriented pages against 2 at baseline. Probing each one at the pipeline's own
+scale (1600 px, INTER_LINEAR):
+
+| page | detector says | after rotating by that | verdict |
+|---|---|---|---|
+| `IMG_20260129_202334` | 180 | 0 | **pipeline miss** |
+| `IMG_20260506_224356` | 180 | 0 | **pipeline miss** |
+| `IMG_20260506_224646` | 180 | 0 | **pipeline miss** |
+| `IMG_20260506_225304_p1` | 90 | 0 | **pipeline miss** |
+| `IMG_20260506_224606` | 180 | 180 | detector contradicts itself |
+| `IMG_20260506_224643` | 180 | 180 | detector contradicts itself |
+| `IMG_20260506_225358_p2` | 180 | 180 | detector contradicts itself |
+
+So four are a real pipeline miss to chase — the same 1600 px / INTER_LINEAR check that is
+supposed to run at save time did not turn them — and three are cases where the OCR-scored
+detector answers 180 for the page *and* for its 180-degree rotation, which no threshold can
+fix. The detector needs a second opinion that is not OCR-scored: the page's text baseline
+direction from `charlines` (the lines are horizontal in an upright page and their ink
+profile is asymmetric vertically — ascenders above the baseline, descenders below).
