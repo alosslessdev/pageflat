@@ -130,3 +130,25 @@ measured. Removed rather than tuned.
 The stable reference is the **page's own long boundary** (the left or right edge), which
 `edges.straighten_edge` already traces: one line, unambiguous, and its slope is a lean
 measurement that cannot be moved by which internal strokes get detected.
+
+### The lean plateau was mostly the ruler, and the correction was making it worse
+
+Two independent measures of the same thing, on 35 pages of it3:
+
+| measure | median |
+|---|---|
+| rule-based tilt (`vertical_rules` median slope) | **1.03 deg** |
+| the page's own boundary slope (`_paper_like` edge fit) | **0.18 deg** |
+
+Correlation between them: **-0.05** — none. The rules are measuring the slope of *printed
+design* (product panels, banners, diagonals), not the lean of the sheet. Rotating by that
+median therefore squares up the content and tilts the paper: measured over 30 pages the
+page-edge slope went **0.26 -> 0.34 deg**, worse on 13 pages and better on 6.
+
+So `fix_tilt` is **off by default**. The page's own boundary is the honest lean reference; a
+correction driven by it is the next thing to build, and it needs the edge to be inside the
+frame, which is exactly the case `edges.py` already refuses when it is not.
+
+This also explains the whole plateau: it1 -> it2 -> it3 moved the rule-tilt by tenths of a
+degree while the page was already square to 0.18 deg. The number that *should* be in the
+target table is the edge slope, not the rule tilt.

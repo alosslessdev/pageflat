@@ -29,7 +29,9 @@ class Settings:
     trim_background: bool = False  # opt-in: drop saturated background (bed sheets, table cloth)
     trim_edges: bool = True         # take the strip of table / neighbour off the frame edge
     straighten_edges: bool = True   # shear rows so the sheet's own edge is a straight line
-    fix_tilt: bool = True           # rotate out the lean of the page's vertical structure
+    fix_tilt: bool = False          # OFF: the rule-based lean squares the *content*, not
+                                    # the page (see docs/LOOP.md) and made the page edge
+                                    # worse on 13 of 30 pages
     dewarp: str = "doctr"               # doctr | uvdoc | best | none
     illum_mode: str = "classical"       # classical | doctr | none
     split_spreads: bool = True
