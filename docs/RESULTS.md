@@ -453,3 +453,18 @@ from "content cut off". Looking at the pages it flags shows both:
 
 So the cropping goal is **not met**: roughly a third of the sampled pages still carry a
 border defect, and the majority of those are cuts rather than leftovers.
+
+### The split guard that actually works
+
+Counting words does not catch a bad split — two smaller halves OCR *better* than one big
+page (62 words became 121 on `IMG_20260506_224359`), so the cut looked like a win. The test
+that works is geometric: **a cut is wrong when a detected line's box spans it.** On that
+page the proposed cut at x=1697 crossed two to three lines and the split is refused; the
+whole spread comes out at 3508x2155, uncut, and the catalogue pages are intact where before
+each half lost a column.
+
+Clef was asked to arbitrate the same question ("spread or single?") and **is not reliable
+for it**: shown a photographically obvious two-page catalogue spread it answered "single"
+at 0.77, and called one of its halves "spread" at 0.96. The question was removed rather
+than shipped as a gate, for the same reason as the sheet-visibility question: coarse
+content type is within this classifier, fine spatial judgements are not.

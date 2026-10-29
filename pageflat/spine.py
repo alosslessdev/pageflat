@@ -179,3 +179,32 @@ def align_to_spine(img_bgr: np.ndarray, curve: Optional[np.ndarray] = None,
     map_x = np.clip(xs + shift[:, None].astype(np.float32), 0, w - 1)
     out = cv2.remap(img_bgr, map_x, ys, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
     return out, {"spine": True, "drift": round(float(np.abs(shift).max()), 1)}
+
+
+def split_without_losing_text(img_bgr: np.ndarray, **kwargs
+                              ) -> tuple[list[np.ndarray], dict]:
+    """Split, but not through a line of text.
+
+    A gutter candidate can sit inside a page — a dark product, the fold's shadow —
+    and the halves then look page-shaped while each has lost a column. Counting
+    words does not catch it (two smaller halves OCR *better* than one big one), so
+    the test is geometric: a cut is wrong when a detected line's box spans it.
+    """
+    from .charlines import detect_lines
+
+    parts = split_spread(img_bgr, **kwargs)
+    if len(parts) < 2:
+        return parts, {"split": False}
+
+    w = img_bgr.shape[1]
+    lines = [l for l in detect_lines(img_bgr) if (l.right - l.left) > 0.03 * w]
+    cuts = [int(round(sum(p.shape[1] for p in parts[:i])))
+            for i in range(1, len(parts))]
+    crossed = []
+    for x in cuts:
+        n = sum(1 for l in lines if l.left < x < l.right)
+        crossed.append(n)
+    if sum(crossed) > 0:
+        return [img_bgr], {"split": False, "rejected": "cuts text",
+                           "lines_crossed": crossed, "cuts": cuts}
+    return parts, {"split": True, "lines_crossed": crossed, "cuts": cuts}

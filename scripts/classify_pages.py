@@ -54,6 +54,19 @@ QUESTIONS = {"page": {
         },
     }
 },
+"spread": {
+    "spread": {
+        "type": "choice",
+        "instructions": (
+            "Does this scan show TWO facing pages of an open book, magazine or catalogue "
+            "— a spread — or a single page?"
+        ),
+        "criteria": {
+            "spread": "two pages side by side, meeting at a fold or shadow down the middle",
+            "single": "one page: no second page beside it",
+        },
+    }
+},
 "page_type": {
         "type": "choice",
         "instructions": (

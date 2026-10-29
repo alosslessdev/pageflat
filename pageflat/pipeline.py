@@ -436,7 +436,10 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                     rect = detector.illuminate(rect)
                 if settings.trim_background:
                     rect = trim_background(rect)
-                pages = spine.split_spread(rect) if settings.split_spreads else [rect]
+                pages = [rect]
+                if settings.split_spreads:
+                    pages, _split_info = spine.split_without_losing_text(rect)
+                    res.pick["split"] = _split_info
                 kept = []
                 for page in pages:
                     surface_ok, m_surface = quality.surface_checks(
@@ -658,7 +661,10 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
             # page got its own homography; splitting again here only re-cuts
             # pages whose shadow happens to look like a spine
             split_here = settings.split_spreads and not settings.split_sheets
-            pages = spine.split_spread(rect) if split_here else [rect]
+            pages = [rect]
+            if split_here:
+                pages, _split_info = spine.split_without_losing_text(rect)
+                res.pick["split"] = _split_info
             kept = []
             for page in pages:
                 surface_ok, m_surface = quality.surface_checks(

@@ -115,3 +115,51 @@ def edge_drift(img_bgr: np.ndarray, mask: np.ndarray | None = None,
     res["bottom"] = _edge(t, "right")
     return EdgeDrift(res["left"], res["right"], res["top"], res["bottom"],
                      img_bgr.shape[1], img_bgr.shape[0])
+
+
+def straighten_edge(img_bgr: np.ndarray, side: str = "left",
+                    max_shift_frac: float = 0.06) -> tuple[np.ndarray, dict]:
+    """Shear rows so the sheet's own edge becomes a straight vertical.
+
+    A homography cannot remove a physical curl: the page's boundary is a curve and
+    it stays one after the quad is mapped to a rectangle. Shifting each row by the
+    amount its edge is off a straight line is the smallest motion that makes the
+    boundary straight, and it carries the curl out of the content with it.
+    """
+    from .perspective import _paper_like
+
+    h, w = img_bgr.shape[:2]
+    paper = _paper_like(img_bgr).astype(np.uint8)
+    m8 = cv2.morphologyEx(paper, cv2.MORPH_CLOSE, np.ones((31, 31), np.uint8))
+    cnts, _ = cv2.findContours(m8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not cnts:
+        return img_bgr, {"corrected": False}
+    filled = np.zeros_like(m8)
+    cv2.drawContours(filled, [max(cnts, key=cv2.contourArea)], -1, 1, -1)
+
+    xs = np.full(h, np.nan)
+    for y in range(h):
+        idx = np.flatnonzero(filled[y] > 0)
+        if idx.size < 8:
+            continue
+        xs[y] = idx[0] if side == "left" else idx[-1]
+    ok = ~np.isnan(xs)
+    if ok.sum() < 0.3 * h:
+        return img_bgr, {"corrected": False}
+    xs = np.interp(np.arange(h), np.flatnonzero(ok), xs[ok])
+    t = np.arange(h)
+    A = np.stack([t, np.ones_like(t)], 1)
+    coef, *_ = np.linalg.lstsq(A, xs, rcond=None)
+    dx = xs - (A @ coef)
+    if np.abs(dx).max() > max_shift_frac * w:
+        return img_bgr, {"corrected": False, "reason": "shift too large"}
+    if np.median(np.abs(dx)) < 1.0:
+        return img_bgr, {"corrected": False, "reason": "already straight"}
+
+    k = max(3, h // 60 | 1)
+    dx = cv2.GaussianBlur(dx.reshape(-1, 1), (1, k), 0).ravel()
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    map_x = np.clip(gx - dx.astype(np.float32)[:, None], 0, w - 1)
+    out = cv2.remap(img_bgr, map_x, gy, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    return out, {"corrected": True, "median_shift": round(float(np.median(np.abs(dx))), 1),
+                 "max_shift": round(float(np.abs(dx).max()), 1)}
