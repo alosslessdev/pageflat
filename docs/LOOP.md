@@ -191,3 +191,14 @@ detector answers 180 for the page *and* for its 180-degree rotation, which no th
 fix. The detector needs a second opinion that is not OCR-scored: the page's text baseline
 direction from `charlines` (the lines are horizontal in an upright page and their ink
 profile is asymmetric vertically — ascenders above the baseline, descenders below).
+
+### The four orientation misses: stage order
+
+Fixed. The check ran at save time, after the edge shear and the trim — and those change the
+pixels the OCR-scored detector reads, so on four pages it saw an "upright" page and left it
+alone. Running the same check on the rectified sheet, **before** the shear and the trim, turns
+all four: `IMG_20260129_202334`, `IMG_20260506_224356`, `IMG_20260506_224646` and
+`IMG_20260506_225304_p1` come out at `needs 0` on a re-run, where they were at 180/90.
+
+The save-time check is kept as well — it is the one that cannot disagree with the pixels that
+get written — but it is no longer the only one.

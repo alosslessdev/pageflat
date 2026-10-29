@@ -661,6 +661,10 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
 
             if settings.deskew:
                 rect, _ = orientation.deskew(rect, max_angle=10.0)
+            if settings.auto_orient:
+                rect, _early = _orient_final(rect, detector)
+                if _early in _ROTATE:
+                    res.rotation = _early
             if settings.straighten_edges:
                 from .edges import straighten_edge
 
