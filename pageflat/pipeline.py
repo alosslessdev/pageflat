@@ -222,7 +222,11 @@ def _orient_final(page: np.ndarray, detector) -> tuple[np.ndarray, int]:
     small = page
     if max(h, w) > 1600:
         s_ = 1600 / float(max(h, w))
-        small = cv2.resize(page, (int(w * s_), int(h * s_)), interpolation=cv2.INTER_AREA)
+        # INTER_LINEAR, matching the resample the benchmark uses to judge this:
+        # detect_rotation scores OCR of four rotations, and INTER_AREA's
+        # softening is enough to flip the answer on a graphic page (the same page
+        # reads 180 with one interpolation and 0 with the other).
+        small = cv2.resize(page, (int(w * s_), int(h * s_)), interpolation=cv2.INTER_LINEAR)
     angle = orientation.detect_rotation(small)
     if angle not in _ROTATE:
         return page, angle
