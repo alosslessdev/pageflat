@@ -68,6 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--debug", action="store_true", help="save boundary overlays")
     ap.add_argument("--paper-reach", type=float, default=0.0,
                     help="reach past a crop that cut into the text (fraction of edge length)")
+    ap.add_argument("--no-depth", action="store_true",
+                    help="leave the monocular-depth candidate out of --dewarp best")
     ap.add_argument("--pick-metric", choices=["ocr", "bow", "drift"], default="ocr",
                     help="how --dewarp best chooses between candidates")
     ap.add_argument("--content-route", action="store_true",
@@ -100,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         route_url=args.route_url,
         content_route=args.content_route,
         pick_metric=args.pick_metric,
+        use_depth=not args.no_depth,
         paper_reach=args.paper_reach,
         save_debug=args.debug,
         gpu_path=args.gpu_path,

@@ -37,6 +37,7 @@ class Settings:
     quad_margin: float = 0.012          # expand each quad so paper edges survive
     paper_reach: float = 0.0            # >0: reach past a crop that cut into the text
     content_route: bool = False         # classify the page and pick a strategy
+    use_depth: bool = True              # include the monocular-depth candidate in "best"
     pick_metric: str = "ocr"            # "bow": choose the straightest candidate without OCR
     route_url: str = ""                 # clef (llama-server) endpoint for the classifier
     line_straighten: bool = True        # word-line bow removal (kept only if OCR agrees)
@@ -522,9 +523,10 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
                     detector.dewnet = DewarpNetDewarper(device=str(detector.device))
                 cands = {"none": rect}
                 from . import depthwarp
-                for name, fn in (("doctr", detector.rectify),
-                                 ("dewnet", detector.dewnet.rectify),
-                                 ("depth", lambda im: depthwarp.rectify(im)[0])):
+                names = [("doctr", detector.rectify), ("dewnet", detector.dewnet.rectify)]
+                if settings.use_depth:
+                    names.append(("depth", lambda im: depthwarp.rectify(im)[0]))
+                for name, fn in names:
                     try:
                         cands[name] = fn(rect)
                     except Exception:  # noqa: BLE001

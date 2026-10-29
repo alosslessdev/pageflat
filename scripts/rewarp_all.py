@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
+import traceback
 import re
 import shutil
 import subprocess
@@ -59,6 +61,9 @@ def main(argv=None) -> int:
     ap.add_argument("--limit", type=int, default=0, help="stop after this many sources")
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--dewarp", default="best")
+    ap.add_argument("--no-depth", action="store_true")
+    ap.add_argument("--chunk-timeout", type=int, default=600,
+                    help="seconds a chunk may run before it is abandoned")
     ap.add_argument("--pick-metric", default="bow")
     ap.add_argument("--metric", choices=["sharp", "drift"], default="drift")
     ap.add_argument("--gain", type=float, default=0.85,
@@ -97,14 +102,56 @@ def main(argv=None) -> int:
         out.mkdir()
         cmd = [sys.executable, "-m", "pageflat.cli", "--list", str(listing), "-o", str(out),
                "--dewarp", args.dewarp, "--illum", "classical", "--workers", str(args.workers),
-               "--content-route", "--pick-metric", args.pick_metric]
-        rc = subprocess.call(cmd, cwd=str(Path(__file__).resolve().parents[1]))
+               "--content-route", "--pick-metric", args.pick_metric,
+           "--no-depth"] if args.no_depth else [
+           "--dewarp", args.dewarp, "--illum", "classical", "--workers", str(args.workers),
+           "--content-route", "--pick-metric", args.pick_metric]
+        t0 = time.time()
+        print(f"[{time.strftime('%H:%M:%S')}] chunk {i // args.chunk} start ({len(batch)} sources)",
+              file=sys.stderr, flush=True)
+        try:
+            # a single pathological image can hang a pool worker forever, and
+            # `pool.map` has no timeout of its own: bound the chunk instead
+            rc = subprocess.call(cmd, cwd=str(Path(__file__).resolve().parents[1]),
+                                 timeout=args.chunk_timeout)
+        except subprocess.TimeoutExpired:
+            print(f"[{time.strftime('%H:%M:%S')}] chunk {i // args.chunk} timed out after "
+                  f"{args.chunk_timeout}s; skipping its sources", file=sys.stderr, flush=True)
+            rc = -9
+        except Exception:
+            traceback.print_exc()
+            rc = -1
+        print(f"[{time.strftime('%H:%M:%S')}] chunk {i // args.chunk} cli rc={rc} "
+              f"({time.time() - t0:.0f}s)", file=sys.stderr, flush=True)
         if rc != 0:
             # a worker died inside the pool: retry the same chunk serially, so
             # one bad photo cannot cost the whole chunk
             cmd = [c if c != str(args.workers) else "1" for c in cmd]
             print("retrying the chunk with one worker", file=sys.stderr)
-            rc = subprocess.call(cmd, cwd=str(Path(__file__).resolve().parents[1]))
+            t0 = time.time()
+        print(f"[{time.strftime('%H:%M:%S')}] chunk {i // args.chunk} start ({len(batch)} sources)",
+              file=sys.stderr, flush=True)
+        try:
+            # a single pathological image can hang a pool worker forever, and
+            # `pool.map` has no timeout of its own: bound the chunk instead
+            rc = subprocess.call(cmd, cwd=str(Path(__file__).resolve().parents[1]),
+                                 timeout=args.chunk_timeout)
+        except subprocess.TimeoutExpired:
+            print(f"[{time.strftime('%H:%M:%S')}] chunk {i // args.chunk} timed out after "
+                  f"{args.chunk_timeout}s; skipping its sources", file=sys.stderr, flush=True)
+            rc = -9
+        except Exception:
+            traceback.print_exc()
+            rc = -1
+        print(f"[{time.strftime('%H:%M:%S')}] chunk {i // args.chunk} cli rc={rc} "
+              f"({time.time() - t0:.0f}s)", file=sys.stderr, flush=True)
+        if rc == -9:
+            # write the sources off, so the supervisor does not retry them for ever
+            with open(journal, "a") as fh:
+                for stem in batch:
+                    fh.write(stem + "\n")
+            shutil.rmtree(work, ignore_errors=True)
+            continue
         if rc != 0:
             print(f"batch {i // args.chunk} failed ({rc}); not journaling it", file=sys.stderr)
             shutil.rmtree(work, ignore_errors=True)
@@ -145,7 +192,8 @@ def main(argv=None) -> int:
         changed_path.write_text("\n".join(sorted(set(changed))) + "\n")
         shutil.rmtree(work, ignore_errors=True)
         done_n = min(i + args.chunk, len(stems))
-        print(f"{done_n}/{len(stems)} sources, {total_replaced} pages replaced", file=sys.stderr)
+        print(f"[{time.strftime('%H:%M:%S')}] {done_n}/{len(stems)} sources, "
+              f"{total_replaced} pages replaced", file=sys.stderr, flush=True)
     print(f"done: {total_replaced} pages replaced")
     return 0
 
