@@ -250,3 +250,21 @@ Two limits found while checking this:
 * `spine.trace_spine` is not usable on these outputs — the CLI crops to the
   sheet, so the gutter is gone and the tracer follows whatever dark band is
   nearest, wandering 371 px on a page whose text is straight.
+
+## What the router can and cannot decide
+
+`--question page_type` (text / graphic / photo / table) is reliable enough to drive
+the measure: on the 148 finished pages it split them 77 graphic, 56 text, 14 photo, 1
+table, and the drift violations under the block ruler concentrated exactly in the graphic
+class — the class where that ruler is invalid.
+
+`--question sheet` (isolated / cluttered / fills) was tried for the same job on the edge
+ruler and **is not reliable at this model size**: asked about four known frames at 640 px
+it got two right. A book lying on a duvet was called "isolated" at 0.72, and a page cropped
+to its content was called "isolated" rather than "fills". Fine visual judgements about
+which of a sheet's four edges are visible are beyond a 4-bit decision model, so the
+question was removed rather than shipped as a gate.
+
+The edge ruler therefore stays blocked on a trustworthy sheet mask. SAM is the right tool
+but not with these prompts: a single point produced 26 % coverage (part of one page) and a
+box prompt 11 %, neither of which is the sheet, so its "edges" were internal lines.

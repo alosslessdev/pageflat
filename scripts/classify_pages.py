@@ -38,7 +38,23 @@ QUESTIONS = {"page": {
     }
 },
 "page_type": {
-    "page_type": {
+    "sheet": {
+    "sheet": {
+        "type": "choice",
+        "instructions": (
+            "Look at the sheet of paper in this photograph. How well can its own "
+            "outline be followed?"
+        ),
+        "criteria": {
+            "isolated": "the sheet lies on a plain, contrasting surface and its full "
+                        "outline is visible and clean",
+            "cluttered": "the sheet sits on bedding, a table, other papers or objects, so "
+                         "parts of its outline are hidden or merge with the background",
+            "fills": "the sheet fills the frame: its outline is outside the picture",
+        },
+    }
+},
+"page_type": {
         "type": "choice",
         "instructions": (
             "Look at this scan of a page. How is its content laid out? "
