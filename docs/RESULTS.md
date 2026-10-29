@@ -296,3 +296,25 @@ therefore orientation and cropping, not geometry.
 Throughput, for the same run: `--gpu-path --threads 4` finishes 100 pages in 412 s
 (4.1 s/page) with the GPU at 80-90 %, against 17.6 s/page and a 14 % GPU for the default
 configuration — the pixel stages were the bottleneck, not the models.
+
+## Cropping: the strip that survived the crop
+
+`crop_to_content` works from where the *print* is, so a strip of table, floor or the
+neighbouring page survives wherever the print stops short of the paper's edge. On the
+100-source run **102 of 148 pages carried a background band over half of the frame edge**,
+most of them at the bottom.
+
+`crop.trim_borders` asks the opposite question — is the outermost line of pixels paper? — and
+walks in from each side while the band is mostly not paper, bounded to 15 % of the dimension
+so a dark picture cannot eat a page. A trim that costs OCR is undone, the same rule the warp
+candidates are held to.
+
+| | before | after |
+|---|---|---|
+| pages with a > 50 % background band | 102 | **32** |
+| pages trimmed | — | 117 |
+| trims reverted because they cost text | — | 7 |
+
+On `IMG_20260506_224517_p1` the trim also *raised* OCR from 73.7 to 82.8, because the dark
+strip was pulling the recognition down. It runs per page after the spread split, so each
+half is trimmed on its own edges.

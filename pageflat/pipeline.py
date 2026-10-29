@@ -27,6 +27,7 @@ class Settings:
     use_sam: bool = False
     route_url: str = ""            # llama-server with a Clef model, optional
     trim_background: bool = False  # opt-in: drop saturated background (bed sheets, table cloth)
+    trim_edges: bool = True         # take the strip of table / neighbour off the frame edge
     dewarp: str = "doctr"               # doctr | uvdoc | best | none
     illum_mode: str = "classical"       # classical | doctr | none
     split_spreads: bool = True
@@ -68,6 +69,7 @@ class PageResult:
     dewarp: str = ""
     content: dict = field(default_factory=dict)
     lines: dict = field(default_factory=dict)
+    trim: dict = field(default_factory=dict)   # edge-trim result
     kind: str = ""                         # page type from the content classifier
     pick: dict = field(default_factory=dict)  # candidate scores in "best" mode
     route: str = ""
@@ -624,6 +626,15 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
                     page = illum.scan_finish(page)
                 elif settings.illum_mode == "doctr":
                     page = illum.auto_contrast(page)
+                # whatever the sheet lies on, left at the frame edge by the crop:
+                # a table strip or a sliver of the neighbouring page. Per page,
+                # after the split, so a spread's two halves are trimmed on their
+                # own edges. Undone when it costs OCR.
+                if settings.trim_edges:
+                    from .crop import trim_borders
+
+                    page, edge_info = trim_borders(page)
+                    res.trim = edge_info
                 content_ok, m_content = quality.content_checks(page, settings.min_ink,
                                                                settings.min_lines)
                 res.content = {**m_surface, **m_content}

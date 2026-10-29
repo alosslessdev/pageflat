@@ -63,3 +63,62 @@ def crop_to_content(img: np.ndarray, pad: float = 0.03, outside_tol: float = 0.0
         return img, info
     info["cropped"] = True
     return img[y0:y1, x0:x1], info
+
+
+def trim_borders(img: np.ndarray, max_frac: float = 0.15, need_paper: float = 0.6,
+                 verify: bool = True, min_gain: float = 0.9
+                 ) -> tuple[np.ndarray, dict]:
+    """Take off the sliver of table, floor or neighbouring page at the frame edge.
+
+    `crop_to_content` works on where the *print* is, which leaves a strip of
+    whatever the sheet lies on wherever the print stops short of the paper edge.
+    This works on the other question: is the outermost line of cells paper? It
+    walks in from each side while the band is mostly not paper, and stops at the
+    first band that is — so a page whose print runs to its edge is untouched, and
+    a page with a dark table strip loses exactly that strip.
+
+    Bounded by `max_frac` of the dimension so a dark picture at the edge can
+    never eat the page.
+    """
+    from .perspective import _paper_like
+
+    paper = _paper_like(img)
+    h, w = paper.shape
+    lim_y, lim_x = int(max_frac * h), int(max_frac * w)
+
+    def band_ok(sl: tuple[slice, slice]) -> bool:
+        return float(paper[sl].mean()) >= need_paper
+
+    top = bot = left = right = 0
+    while top < lim_y and not band_ok((slice(top, top + 1), slice(0, w))):
+        top += 1
+    while bot < lim_y and not band_ok((slice(h - 1 - bot, h - bot), slice(0, w))):
+        bot += 1
+    body = slice(top, h - bot)
+    while left < lim_x and not band_ok((body, slice(left, left + 1))):
+        left += 1
+    while right < lim_x and not band_ok((body, slice(w - 1 - right, w - right))):
+        right += 1
+
+    if top + bot >= h - 8 or left + right >= w - 8:
+        return img, {"trimmed": False}
+    out = img[top:h - bot, left:w - right]
+    info = {"trimmed": bool(top or bot or left or right),
+            "box": [left, top, w - right, h - bot]}
+    if not info["trimmed"]:
+        return out, info
+
+    # A strip of table is worth removing; a strip of the page's own content is
+    # not. The only test that knows the difference is what the page still reads,
+    # so a trim that costs OCR is undone — the same rule the warp candidates are
+    # held to. Cheap when the trim is small, so only large trims are checked.
+    big = (top + bot) > 0.05 * h or (left + right) > 0.05 * w
+    if verify and big:
+        from .pipeline import ocr_quality
+
+        before, after = ocr_quality(img), ocr_quality(out)
+        if before and after is not None and after < min_gain * before:
+            info["rejected"] = "ocr"
+            info["trimmed"] = False
+            return img, info
+    return out, info
