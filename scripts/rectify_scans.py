@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import cv2, numpy as np
 from pageflat.detect import text_lines
+from pageflat.tiles import text_lines_tiled
 from pageflat.blocks import blocks_of
 from pageflat.pipeline import ocr_quality
 from pageflat.models import DocTrPipeline, DewarpNetDewarper, UVDocDewarper
