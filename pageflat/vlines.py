@@ -198,3 +198,4 @@ def rectify(img_bgr: np.ndarray, smoothing: int = 15,
     out = cv2.remap(img_bgr, map_x, gy, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
     return out, {"corrected": True, "rules": len(rules), "lean": round(lean, 2),
                  "tilt_deg": round(tilt, 2)}
+

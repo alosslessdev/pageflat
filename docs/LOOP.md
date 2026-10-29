@@ -117,3 +117,16 @@ retried.
 * **SAM with a single point or a box** — segments one page, or a leaf; a 3×3 grid inside a
   coarse mask finds the whole sheet at 0.98.
 * **`skew_angle` on graphic pages** — reports 0.00° exactly where the page is tilted.
+
+### Dead end: a Hough estimate of the lean
+
+Tried next: one angle from every vertical stroke at once, weighted by stroke length, so that
+re-detecting a different rule set after a rotation could not move the answer. It gives a
+**median of 7.45 deg over 40 pages** — absurd, because "vertical-ish" accepts every slanted
+product photo and diagonal design element on a flyer, and the weighted median then lands on
+them. Tightening the acceptance angle would bias the estimate toward the answer being
+measured. Removed rather than tuned.
+
+The stable reference is the **page's own long boundary** (the left or right edge), which
+`edges.straighten_edge` already traces: one line, unambiguous, and its slope is a lean
+measurement that cannot be moved by which internal strokes get detected.
