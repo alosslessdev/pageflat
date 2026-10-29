@@ -318,3 +318,17 @@ candidates are held to.
 On `IMG_20260506_224517_p1` the trim also *raised* OCR from 73.7 to 82.8, because the dark
 strip was pulling the recognition down. It runs per page after the spread split, so each
 half is trimmed on its own edges.
+
+## Orientation
+
+34 of the 148 finished pages were sideways or upside down (24 at 180 degrees, 6 at 270, 4 at
+90), and the pipeline had reported `rotation: 0` for them: the **GPU path** decides
+orientation on the pre-warp sheet, which is not the image that gets written. The CPU path
+was right; `--gpu-path` was wrong, which is why the batch run carried the defect.
+
+The fix runs the check on the finished page, just before it is written — and uses the
+**OCR-scored** detector rather than docTR's thumbnail classifier. The classifier is
+confident and wrong on half a spread: on `IMG_20260506_224449` it called both halves upside
+down, and rotating on that answer left one of them wrong. Requiring the two detectors to
+agree did not help, because on that half they agreed and were both wrong. The OCR-scored
+detector reads the text, costs about 2 s, and got 5 of 5 pages right on the re-run.

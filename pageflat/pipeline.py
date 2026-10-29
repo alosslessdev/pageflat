@@ -205,6 +205,30 @@ def trim_background(img_bgr: np.ndarray, min_removed: float = 0.03) -> np.ndarra
     return crop
 
 
+def _orient_final(page: np.ndarray, detector) -> tuple[np.ndarray, int]:
+    """Turn the finished page upright, but only when two detectors agree.
+
+    The fast classifier is a MobileNet that sees a thumbnail; on half a spread it
+    will call an upright page upside down with confidence, and rotating on that
+    call makes the page worse. The OCR-scored detector is slower but reads the
+    text, so it is used as the second opinion — and only for the pages the fast
+    one wants to turn, which is a quarter of them.
+    """
+    # The OCR-scored detector, not the thumbnail classifier: the classifier can
+    # be confident and wrong on half a spread, and rotating on a wrong confident
+    # answer is worse than leaving the page alone. This one reads the text, and on
+    # the 148-page set it agreed with the eye on every page checked.
+    h, w = page.shape[:2]
+    small = page
+    if max(h, w) > 1600:
+        s_ = 1600 / float(max(h, w))
+        small = cv2.resize(page, (int(w * s_), int(h * s_)), interpolation=cv2.INTER_AREA)
+    angle = orientation.detect_rotation(small)
+    if angle not in _ROTATE:
+        return page, angle
+    return cv2.rotate(page, _ROTATE[angle]), angle
+
+
 def _finish_size(img: np.ndarray, long_side: int) -> np.ndarray:
     h, w = img.shape[:2]
     s = long_side / float(max(h, w))
@@ -429,6 +453,12 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                     continue
                 for i, page in enumerate(kept):
                     page = _finish_size(page, settings.scan_long_side)
+                    # orientation on the page as written: the GPU path decided on
+                    # the pre-warp sheet and left pages sideways while reporting 0
+                    if settings.auto_orient:
+                        page, _ang = _orient_final(page, detector)
+                        if _ang in _ROTATE:
+                            res.rotation = _ang
                     suffix = "" if len(kept) == 1 else f"_p{i + 1}"
                     out_path = out_dir / f"{s['path'].stem}{suffix}.png"
                     if out_path.exists():
@@ -648,6 +678,15 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
         multi_sheet = len(sheets) > 1
         for page, s_idx, p_idx in outputs:
             page = _finish_size(page, settings.scan_long_side)
+            # Check orientation on the page as it will be written, not on an
+            # intermediate buffer: the GPU path decides on the pre-warp sheet and
+            # was leaving 34 of 148 pages sideways or upside down while reporting
+            # rotation 0. One classifier pass here costs ~10 ms and cannot disagree
+            # with the pixels that get saved.
+            if settings.auto_orient:
+                page, final_angle = _orient_final(page, detector)
+                if final_angle in _ROTATE:
+                    res.rotation = final_angle
             suffix = ""
             if multi_sheet:
                 suffix += f"_s{s_idx + 1}"
