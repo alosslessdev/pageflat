@@ -48,12 +48,15 @@ def candidates(img, doctr, dewnet, uvdoc, include_depth: bool = True):
             pass
     if not include_depth:
         return out
-    try:
-        cand, info = depthwarp.rectify(img)
-        if info.get("corrected"):
-            out["depth"] = cand
-    except Exception:  # noqa: BLE001
-        pass
+    # Both depth engines are offered: V2 and V3 are equal in aggregate but win
+    # different pages, and the router takes whichever is straighter.
+    for name, engine in (("depth", "v2"), ("depth_da3", "da3")):
+        try:
+            cand, info = depthwarp.rectify(img, engine=engine)
+            if info.get("corrected"):
+                out[name] = cand
+        except Exception:  # noqa: BLE001
+            pass
     return out
 
 
@@ -160,14 +163,17 @@ def main(argv=None) -> int:
                 if name not in [s[0] for s in scored]:
                     scored.append((name, None, None))
             known = [s for s in scored if s[1] is not None]
-            if known and min(s[1] for s in known) > args.threshold and "depth" not in cands:
+            if known and min(s[1] for s in known) > args.threshold and not any(
+                    k.startswith("depth") for k in cands):
                 extra = candidates(img, doctr, dewnet, uvdoc, include_depth=True)
-                if "depth" in extra:
-                    cands["depth"] = extra["depth"]
-                    d, c = drift(extra["depth"]), ocr_quality(extra["depth"])
-                    scored.append(("depth", d, c))
+                for name, cand in extra.items():
+                    if not name.startswith("depth"):
+                        continue
+                    cands[name] = cand
+                    d, c = drift(cand), ocr_quality(cand)
+                    scored.append((name, d, c))
                     if d is not None and c is not None:
-                        known.append(("depth", d, c))
+                        known.append((name, d, c))
             if not known:
                 fh.write(json.dumps({"page": page.name, "base": base, "scored": scored,
                                      "pick": None, "drift": None, "conf": None}) + "\n")

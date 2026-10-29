@@ -38,7 +38,8 @@ def _load():
     return _MODEL, _PROC
 
 
-def depth_map(img_bgr: np.ndarray, side: int = SIDE) -> tuple[np.ndarray, float]:
+def depth_map(img_bgr: np.ndarray, side: int = SIDE,
+              engine: Optional[str] = None) -> tuple[np.ndarray, float]:
     """Relative depth at `side` pixels, and the factor back to the input frame.
 
     `PAGEFLAT_DEPTH=da3` switches to Depth Anything 3, which returns the same
@@ -46,7 +47,8 @@ def depth_map(img_bgr: np.ndarray, side: int = SIDE) -> tuple[np.ndarray, float]
     """
     import os
 
-    if os.environ.get("PAGEFLAT_DEPTH", "v2").lower() in ("da3", "v3", "3"):
+    engine = (engine or os.environ.get("PAGEFLAT_DEPTH", "v2")).lower()
+    if engine in ("da3", "v3", "3"):
         from .da3 import surface_depth
 
         return surface_depth(img_bgr, side=side), 1.0
@@ -85,7 +87,8 @@ def plane_residual(depth: np.ndarray, mask: Optional[np.ndarray] = None) -> np.n
 
 def rectify(img: np.ndarray, lines=None, depth: Optional[np.ndarray] = None,
             back: float = 1.0, k_values=None,
-            precomputed: Optional[np.ndarray] = None) -> tuple[np.ndarray, dict]:
+            precomputed: Optional[np.ndarray] = None,
+            engine: Optional[str] = None) -> tuple[np.ndarray, dict]:
     """Flatten using the depth's shape, calibrated by the measured line bow.
 
     The depth says *how* the sheet bends; the text lines say *how much* that
@@ -101,7 +104,7 @@ def rectify(img: np.ndarray, lines=None, depth: Optional[np.ndarray] = None,
         unit = precomputed
     else:
         if depth is None:
-            depth, back = depth_map(img)
+            depth, back = depth_map(img, engine=engine)
         resid = plane_residual(depth)
         resid = cv2.resize(resid, (w, h), interpolation=cv2.INTER_CUBIC)
         resid = resid - float(np.median(resid))
