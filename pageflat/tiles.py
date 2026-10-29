@@ -62,7 +62,31 @@ def text_lines_tiled(img: np.ndarray, tile: int = TILE, overlap: int = OVERLAP) 
             for line in text_lines(patch):
                 out.append((line[0] + x, line[1] + max(0, y),
                             line[2] + x, line[3] + max(0, y)))
+    out = _dedupe(out)
     if len(_CACHE) > _CACHE_MAX:
         _CACHE.clear()
     _CACHE[key] = out
     return out
+
+
+def _dedupe(lines: list, iou: float = 0.5) -> list:
+    """Drop the duplicate detections the tile overlap creates.
+
+    Neighbouring tiles share a band, so a line in that band is found twice with
+    slightly different boxes. Left in, the same line counts twice in a block and
+    the page's margins look like they vary.
+    """
+    if not lines:
+        return lines
+    kept: list = []
+    for line in sorted(lines, key=lambda l: -(l[2] - l[0]) * (l[3] - l[1])):
+        cx, cy = (line[0] + line[2]) / 2.0, (line[1] + line[3]) / 2.0
+        dup = False
+        for k in kept:
+            if (abs(cx - (k[0] + k[2]) / 2.0) < 0.5 * (line[2] - line[0])
+                    and abs(cy - (k[1] + k[3]) / 2.0) < 0.5 * (line[3] - line[1])):
+                dup = True
+                break
+        if not dup:
+            kept.append(line)
+    return kept

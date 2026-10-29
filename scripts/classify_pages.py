@@ -22,7 +22,7 @@ from pathlib import Path
 import cv2
 import requests
 
-QUESTION = {
+QUESTIONS = {"page": {
     "page": {
         "type": "choice",
         "instructions": (
@@ -36,7 +36,25 @@ QUESTION = {
             "other": "anything else: people, rooms, objects, screens, scenery, textile, food",
         },
     }
+},
+"page_type": {
+    "page_type": {
+        "type": "choice",
+        "instructions": (
+            "Look at this scan of a page. How is its content laid out? "
+            "Answer with the single best description."
+        ),
+        "criteria": {
+            "text": "mostly continuous running text: paragraphs, articles, columns of prose",
+            "graphic": "mostly pictures, product grids, a flyer or catalogue, adverts, charts — "
+                       "text appears as scattered labels and prices, not as paragraphs",
+            "photo": "one large photograph or illustration dominates the page",
+            "table": "mostly a ruled table, form or spreadsheet",
+        },
+    }
+},
 }
+QUESTION = QUESTIONS["page"]
 
 
 def encode(path: str, side: int = 320) -> str | None:
@@ -63,11 +81,14 @@ def classify(url: str, path: str, timeout: float = 120.0, side: int = 320) -> di
     try:
         r = requests.post(url.rstrip("/") + "/v1/systemone", json=body, timeout=timeout)
         r.raise_for_status()
-        ans = r.json()["answers"]["page"]
+        key = next(iter(QUESTION))
+        ans = r.json()["answers"][key]
         # choice answers carry per-option probabilities
         probs = ans.get("probabilities") or ans.get("options") or {}
-        return {"path": path, "page": float(probs.get("page", 0.0)),
-                "answer": ans.get("answer") or ans.get("choice")}
+        out = {"path": path, key: float(probs.get(key, 0.0)),
+               "answer": ans.get("answer") or ans.get("choice")}
+        out.update({f"p_{k}": float(v) for k, v in probs.items()})
+        return out
     except Exception as exc:  # noqa: BLE001
         return {"path": path, "error": repr(exc)[:200]}
 
@@ -80,7 +101,10 @@ def main(argv=None) -> int:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--side", type=int, default=320)
+    ap.add_argument("--question", choices=sorted(QUESTIONS), default="page")
     args = ap.parse_args(argv)
+    global QUESTION
+    QUESTION = QUESTIONS[args.question]
 
     import re
     paths = []
