@@ -91,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="concurrent images inside one process; keeps the GPU busy "
                          "while the CPU decodes/encodes the neighbouring images")
     ap.add_argument("--json", help="write a JSON report of all results here")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip sources that already have output in --out, so an "
+                         "interrupted long run can be restarted without duplicating pages")
     args = ap.parse_args(argv)
 
     settings = Settings(
@@ -110,6 +113,17 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     files = collect_inputs(args.inputs)
+    if args.resume:
+        out_dir = Path(args.out)
+        if out_dir.exists():
+            # a source's pages are written as `<stem>.png` or `<stem>_pN.png`, so the
+            # stem before the page suffix is what marks the source as done
+            done = {q.name.split("_p")[0] for q in out_dir.glob("*.png")}
+            before = len(files)
+            files = [f for f in files if f.stem not in done]
+            if before != len(files):
+                print(f"resume: {before - len(files)} sources already produced, "
+                      f"{len(files)} to go", flush=True)
     if args.list:
         files = [Path(line.strip()) for line in Path(args.list).read_text().splitlines() if line.strip()]
     if not files:
