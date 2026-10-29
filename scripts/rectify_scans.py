@@ -71,6 +71,8 @@ def main(argv=None) -> int:
     ap.add_argument("--pages-from", default=None,
                     help="JSONL of pages with a drift_frac, to avoid re-measuring all")
     ap.add_argument("--journal", default=None)
+    ap.add_argument("--out-dir", default=None,
+                    help="write the pages of this attempt here instead of rewriting the corpus")
     ap.add_argument("--resume", action="store_true",
                     help="skip pages already in the journal and append")
     args = ap.parse_args(argv)
@@ -119,7 +121,23 @@ def main(argv=None) -> int:
                 continue
             # cheap models first, then the block rule; the slow depth pass is
             # added only when the cheap ones leave the page bent
-            cands = candidates(img, doctr, dewnet, uvdoc, include_depth=False)
+            # Build and score one candidate at a time, and stop as soon as one
+            # already satisfies the goal: once a page is under 1 % drift no
+            # further model can improve the outcome, and the four remaining
+            # evaluations are pure cost.
+            cands = {"none": img}
+            from pageflat.pipeline import keeps_text as _keeps
+            for name, fn in (("uvdoc", uvdoc.rectify), ("doctr", doctr.rectify),
+                             ("dewnet", dewnet.rectify)):
+                try:
+                    cands[name] = fn(img)
+                except Exception:  # noqa: BLE001
+                    continue
+                d = drift(cands[name])
+                if d is not None and d <= 0.01:
+                    ok, _ = _keeps(img, cands[name])
+                    if ok:
+                        break
             # Cheapest signal first: sharpness ranks the candidates for free,
             # the learned detector then measures the block rule only for the
             # two that look straightest, and OCR only for the finalists.
@@ -133,7 +151,7 @@ def main(argv=None) -> int:
             for name, cand in cands.items():
                 if name not in [s[0] for s in scored]:
                     scored.append((name, None, None))
-            known = [s for s in scored if s[1] is not None and s[2] is not None]
+            known = [s for s in scored if s[1] is not None]
             if known and min(s[1] for s in known) > args.threshold and "depth" not in cands:
                 extra = candidates(img, doctr, dewnet, uvdoc, include_depth=True)
                 if "depth" in extra:
@@ -147,16 +165,44 @@ def main(argv=None) -> int:
                                      "pick": None, "drift": None, "conf": None}) + "\n")
                 fh.flush()
                 continue
-            best_conf = max(s[2] for s in known)
-            pool = [s for s in known if s[2] >= best_conf - args.conf_budget]
-            pick = min(pool, key=lambda s: s[1]) if pool else None
+            # A candidate is viable if it is straighter AND it still produces the
+            # page's words. An absolute confidence floor rejects pages where
+            # tesseract simply found nothing (OCR 0), which is a failed
+            # measurement, not a failed correction — so the test is comparative.
+            from pageflat.pipeline import keeps_text
+            base_conf = next((s[2] for s in scored if s[0] == "none"), 0.0)
+            viable = []
+            for s_ in sorted(known, key=lambda x: x[1]):
+                if s_[0] == "none":
+                    continue
+                if base is not None and s_[1] > base * 0.95:
+                    continue
+                if base_conf <= 1.0:            # nothing to lose: judge on geometry
+                    viable.append(s_)
+                    continue
+                ok, _det = keeps_text(img, cands[s_[0]])
+                if ok:
+                    viable.append(s_)
+            pick = viable[0] if viable else next(
+                (s_ for s_ in known if s_[0] == "none"), None)
             row = {"page": page.name, "base": base, "scored": scored,
                    "pick": pick[0] if pick else None,
                    "drift": pick[1] if pick else None,
                    "conf": pick[2] if pick else None}
             fh.write(json.dumps(row) + "\n")
             fh.flush()
-            if pick and pick[0] != "none" and (base is None or pick[1] < base * 0.8):
+            keep_better = pick and pick[0] != "none" and (base is None or pick[1] < base * 0.8)
+            if args.out_dir:
+                # every attempt keeps its own copy of the page set, so attempts
+                # can be compared and the corpus only changes when one wins
+                import shutil
+                target = Path(args.out_dir)
+                target.mkdir(parents=True, exist_ok=True)
+                if keep_better:
+                    cv2.imwrite(str(target / page.name), cands[pick[0]])
+                else:
+                    shutil.copy2(page, target / page.name)
+            if keep_better:
                 if args.apply:
                     cv2.imwrite(str(page), cands[pick[0]])
                     # record each rewrite as it happens: a run that is killed

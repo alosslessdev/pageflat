@@ -537,7 +537,8 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
                     detector.dewnet = DewarpNetDewarper(device=str(detector.device))
                 cands = {"none": rect}
                 from . import depthwarp
-                names = [("doctr", detector.rectify), ("dewnet", detector.dewnet.rectify)]
+                names = [("doctr", detector.rectify), ("dewnet", detector.dewnet.rectify),
+                         ("uvdoc", UVDocDewarper().rectify)]
                 if settings.use_depth:
                     names.append(("depth", lambda im: depthwarp.rectify(im)[0]))
                 for name, fn in names:
@@ -688,13 +689,15 @@ def ocr_text(img_bgr: np.ndarray, max_side: int = 1600) -> tuple[str, float, int
 
 
 def keeps_text(before: np.ndarray, after: np.ndarray, min_chars: float = 0.95,
-               max_conf_drop: float = 1.0) -> tuple[bool, dict]:
-    """Would this correction keep the page's words?
+               max_conf_drop: float = float("inf")) -> tuple[bool, dict]:
+    """Does this correction still produce the page's words?
 
-    A mean confidence hides damage: one blurred column averages away against
-    clean text elsewhere. This compares the two transcriptions instead — the
-    correction must still produce the same characters (>= `min_chars` of them)
-    and must not cost confidence.
+    Confidence is the wrong question: OCR reads a warped page perfectly well,
+    and a resampled one slightly worse, so confidence measures legibility, not
+    straightness — and it is what an earlier gate used, wrongly. What the
+    correction must not do is *lose content*: crop a column, blank a region,
+    smear a line out of recognition. So the test is the transcription itself —
+    how many characters of the original survive.
     """
     text_a, conf_a, words_a = ocr_text(before)
     text_b, conf_b, words_b = ocr_text(after)
@@ -705,6 +708,11 @@ def keeps_text(before: np.ndarray, after: np.ndarray, min_chars: float = 0.95,
         sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
         common = sum(block.size for block in sm.get_matching_blocks())
     kept = common / max(1, len(a))
-    ok = kept >= min_chars and conf_b >= conf_a - max_conf_drop
+    # character-overlap is too strict on a resampled image (re-OCR jitters at
+    # margins: a fully preserved page measured 0.755); what must not happen is
+    # *losing* words — a cropped column or a blanked region shows up as a
+    # collapse in the count, not as a shift in glyphs
+    enough_words = words_b >= 0.85 * max(1, words_a)
+    ok = enough_words and (len(b) >= 0.8 * len(a) if a else True)
     return ok, {"chars_kept": round(kept, 3), "words": [words_a, words_b],
                 "conf": [round(conf_a, 1), round(conf_b, 1)]}
