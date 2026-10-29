@@ -92,12 +92,14 @@ def main(argv=None) -> int:
             "page": f.name,
             "bow": bow_pct(im),
             "tilt": None if v["tilt_deg"] is None else round(v["tilt_deg"], 2),
+            "vbow": v.get("bow_pct"),
             "rules": v["rules"],
             "band": round(band_frac(im), 3),
             "cut_lines": cut_lines(im),
             "rot": detect_rotation(orient_small),
         })
 
+    vb = [r["vbow"] for r in rows if r.get("vbow") is not None]
     bows = [r["bow"] for r in rows if r["bow"] is not None]
     tilts = [abs(r["tilt"]) for r in rows if r["tilt"] is not None]
     print(f"pages                {len(rows)}")
@@ -106,6 +108,8 @@ def main(argv=None) -> int:
     if tilts:
         print(f"tilt median |deg|    {st.median(tilts):.2f}   p90 {np.percentile(tilts, 90):.2f}")
         print(f"tilt above 1 deg     {sum(1 for x in tilts if x > 1)}")
+    if vb:
+        print(f"vertical bow median  {st.median(vb):.2f} %  p90 {np.percentile(vb, 90):.2f}")
     print(f"background band >.5  {sum(1 for r in rows if r['band'] > 0.5)}")
     print(f"pages with cut lines {sum(1 for r in rows if r['cut_lines'] > 0)}")
     print(f"pages misoriented    {sum(1 for r in rows if r['rot'] != 0)}")

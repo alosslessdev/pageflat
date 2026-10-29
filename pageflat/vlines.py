@@ -82,10 +82,15 @@ def vertical_drift(img_bgr: np.ndarray) -> dict:
     tilts = np.array([r.tilt_deg for r in rules])
     bows = np.array([r.deviation for r in rules])
     w = img_bgr.shape[1]
+    # lean and bow are different defects with different cures: a rotation removes
+    # the lean (the slope every rule shares), a shear removes the bow (how far a
+    # rule wanders from its own straight fit). Reporting one number hides which is
+    # left, and the wrong cure then looks like it does nothing.
     return {"rules": len(rules),
             "tilt_deg": float(np.median(tilts)),
             "tilt_abs_deg": float(np.median(np.abs(tilts))),
-            "bow_pct": 100.0 * float(np.median(bows)) / w}
+            "bow_pct": 100.0 * float(np.median(bows)) / w,
+            "bow_px": float(np.median(bows))}
 
 
 def rectify(img_bgr: np.ndarray, smoothing: int = 15,

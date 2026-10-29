@@ -72,10 +72,12 @@ Smoke test of the whole pipeline on the page that measured 4.58 deg: now 0.70 de
 same correction achieved on it1's finished pages. The reason is visible in the numbers: the
 pipeline already applies the rotation before the split, so the second pass has only the
 residual bow left, and a rotation plus a rule-driven shear cannot remove a bow that is not
-in the rules. **The remaining 1.1 deg median is bow, not lean** — the next method has to
-displace the image from the page's own content curve (the text lines already do this
-horizontally; the vertical equivalent would be the column edges' curvature, not their
-straightness).
+in the rules. **That hypothesis was wrong, and the ruler now proves it.** `vertical_drift` reports lean
+and bow separately: on it2 the vertical **bow is 0.05 % median, p90 0.11 %** — already
+negligible — while the **lean is 1.10 deg** with 66 pages above 1 deg. So what is left is
+rotation, not bow, and the rotation just converges slowly: over 45 finished pages the median
+goes 1.15 -> 0.87 -> 0.79 deg across two extra passes, pages above 1 deg 24 -> 20 -> 14. Two
+passes are now applied at save time.
 
 ## What is fixed
 
