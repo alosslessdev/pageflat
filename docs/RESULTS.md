@@ -276,3 +276,23 @@ the frame — both pages, bedding excluded (`SamPageSegmenter.sheet_mask`).
 With that mask, edge drift on the raw photos reads 13-25 % of width, which is the physical
 drape of a newspaper over a duvet rather than a measurement artefact, and a scan cropped to
 its content still refuses to answer.
+
+## The goal, with the classifier choosing the ruler
+
+Neither ruler covers every page, and each is invalid where the other applies. Routed by
+`--question page_type` and by whether a text grid exists at all:
+
+| ruler | pages | median | above 3 % |
+|---|---|---|---|
+| text-line bow (pages with >= 5 lines) | 143 | 0.15 % of width | 0 |
+| sheet-edge drift (pages with < 5 lines) | 10 measured, 2 refused | 0.1-0.7 % for nine of them | 2 (3.0 %, 7.1 %) |
+
+So the flattening goal is met on every page that has text to measure, and on nine of the
+ten text-less pages that could be measured at all. The two exceptions are not flattening
+failures: `IMG_20260506_225318_p1` is **upside down** with a strip of floor left in the
+crop, and its 7.1 % edge number is that strip. The remaining defect class in this corpus is
+therefore orientation and cropping, not geometry.
+
+Throughput, for the same run: `--gpu-path --threads 4` finishes 100 pages in 412 s
+(4.1 s/page) with the GPU at 80-90 %, against 17.6 s/page and a 14 % GPU for the default
+configuration — the pixel stages were the bottleneck, not the models.
