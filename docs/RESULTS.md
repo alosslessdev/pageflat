@@ -61,3 +61,57 @@ kinds, 170 + 13 pages rotated in total.
 * Handwriting gives the learned flow model no text-line cue, so strongly curled
   notebook pages keep some residual curvature; `scripts/refine_scan.py` can
   straighten them when the measured baseline wobble exceeds 1% of page height.
+
+## Measuring on the sources (October 2026)
+
+The earlier numbers were taken on `pageflat_scans_v4`, which `finalize_scans.py`
+builds from **already flattened** scans. Eleven of twelve spot-checked pages had
+a 64 MP original (6944x9248) behind a 1025-2508 px derivative, so the reported
+improvement was partly the pipeline repairing its own earlier output.
+
+Two things had to be fixed before a source measurement meant anything:
+
+* **64 MP input killed the batch.** Four warp models on a 9248-px image take the
+  process down with the OOM killer — exit 137, no journal line. The batch now
+  runs at a working side (`--max-side`, default 2600).
+* **The detector was reading the masthead.** It resizes its input, so a 9248-px
+  page and a 1024-px thumbnail of it look identical to it: 24 lines, 3 blocks.
+  `pageflat/tiles.py` detects on native-resolution tiles — 155 lines, 13 blocks
+  on the same page.
+
+With that ruler, 16 source pages at a 3000-px working side:
+
+| variant | base median | final median | pages above 3 % |
+|---|---|---|---|
+| Depth Anything 3 | 37.8 px | 21.7 px | 0 |
+| Depth Anything V2 | 37.8 px | 21.9 px | 0 |
+| both offered | — | 20.5 px | 0 |
+
+V2 and V3 are equal in aggregate and complementary in detail (three exclusive
+wins each), which is why `rectify_scans.py` now offers both as candidates rather
+than choosing between them.
+
+**Most source pages should not be warped at all.** Four of thirteen are left
+untouched because every model makes them worse — UVDoc triples the drift on
+`IMG_20260507_125608` (22.5 -> 145.4 px) and DewarpNet makes it 9.5x worse. A
+page photographed flat-on is barely bent, and the warp models introduce
+curvature where there was little.
+
+## Delivering PDFs
+
+The scanner-like guarantee is measurable: run the same page through
+`rectify_scans.py` and through `pageflat.cli`, then OCR both. The batch output
+(nothing cropped, nothing oriented) gives `…_I.._.___` in the text layer; the
+CLI output gives `HOY / Edición Especial / El Legado de Kalumbila / 29 de
+diciembre de 2025 - Año 45 - N° 15245`. The chain that produces a searchable,
+scanner-like PDF is therefore:
+
+```
+python -m pageflat.cli <sources> -o pages --dewarp best --long-side 3508
+bash scripts/make_documents.sh pages
+```
+
+Cost on this machine: ~40 s per simple page, ~5.6 min for a complex spread at
+3508 px with `--dewarp best`. The corpus holds 5,737 source images of 40 MP or
+more, so the per-page budget — not the geometry — decides whether the corpus run
+takes days or weeks.
