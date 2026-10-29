@@ -115,3 +115,42 @@ Cost on this machine: ~40 s per simple page, ~5.6 min for a complex spread at
 3508 px with `--dewarp best`. The corpus holds 5,737 source images of 40 MP or
 more, so the per-page budget — not the geometry — decides whether the corpus run
 takes days or weeks.
+
+## Throughput (October 2026)
+
+The pipeline was latency-bound, not compute-bound: on the `--dewarp best` path
+the GPU sat at **14 % mean utilisation** and the CPU at 40 % of a single core,
+for 17.6 s per 3508-px page. The profiler, on a warm process:
+
+| share | what |
+|---|---|
+| 22 % | `select.poll` — waiting on the tesseract subprocess |
+| 22 % | `torch.conv2d` — small serialised GPU kernels |
+| 19 % | numpy/OpenCV `astype`, `remap`, `imwrite`, `resize`, `cvtColor` |
+
+Fixes, in the order they pay:
+
+| configuration | s/page | speedup |
+|---|---|---|
+| default (numpy pixel path, one thread) | 17.6 | 1.0x |
+| `--gpu-path` (`pageflat/gpu_ops.py`) | 6.4 | 2.8x |
+| `--gpu-path --threads 4` | 3.2 | 5.5x |
+| `--gpu-path --threads 8` | 3.3 | saturated |
+
+`--threads` is the continuous pipeline: page N in OCR while page N+1 is on the
+GPU and page N+2 is decoding. It saturates at four because the remaining cost is
+the depth candidate (Depth Anything V2 5.1 s, V3 9.0 s on CPU per page, and only
+on pages where the cheap models fail).
+
+On real pages, though, the cost is higher than on trivially-flat ones: 100
+Clef-confirmed pages at `--dewarp best --gpu-path --threads 4` run at ~13 s each,
+because a complex spread evaluates every candidate.
+
+## Page triage with Clef
+
+`scripts/classify_pages.py` asks the Clef decision model whether an image is a
+page. On 334 camera-roll images of 40 MP or more: **median page probability
+0.98, 274 at 0.5 or above**, no errors — and unlike the resolution heuristic it
+does not admit illustrations. The 100-image sampling that skipped this step had
+63 of 103 pages with no OCR text, because a share of the "pages" were anime
+illustrations.

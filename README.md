@@ -77,16 +77,28 @@ used when available; inference is tiled so a 6 GB card is enough.
 # find candidate page photos in a phone backup
 python scripts/find_pages.py /run/media/phone --min-mp 60 --out pages.jsonl
 
-# flatten them
-python -m pageflat.cli --list pages.jsonl -o scans --dewarp doctr \
-    --sam --sam-weights weights/mobile_sam.pt --workers 1
+# triage the photo library with Clef (a decision model): keep the pages
+python scripts/classify_pages.py pages.jsonl --out verdicts.jsonl --workers 4
+
+# flatten them — --gpu-path and --threads are what keep the machine busy
+python -m pageflat.cli --list pages.jsonl -o scans --dewarp best \
+    --gpu-path --threads 4
 
 # single file, with the boundary overlay for debugging
 python -m pageflat.cli photo.jpg -o scans --debug
 ```
 
 Options: `--dewarp {doctr,uvdoc,best,none}`, `--illum {classical,doctr,none}`,
-`--sam`, `--long-side`, `--no-split`, `--debug`, `--json`, `--workers`.
+`--sam`, `--long-side`, `--no-split`, `--debug`, `--json`, `--workers`,
+`--gpu-path`, `--threads`.
+
+Throughput on a 6 GB card, 3508-px pages: **17.6 s/page** with the default
+numpy pixel path, **6.4 s/page** with `--gpu-path`, **3.2 s/page** with
+`--gpu-path --threads 4`. The pixel stages were the bottleneck, not the models:
+the profiler put 22 % of the time in `select.poll` (waiting on tesseract), 22 %
+in GPU convolutions and 19 % in numpy copies, with the GPU 14 % busy. `--threads`
+overlaps one page's OCR with the next page's GPU work, which is why it buys
+another 2x on top of the GPU path.
 
 `scripts/repair_orientation.py` fixes page rotation after the fact by combining
 docTR's page-orientation classifier with OCR-confidence scoring.
