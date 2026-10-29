@@ -413,3 +413,43 @@ PATH=~/pagedewarp/.venv/bin:$PATH bash scripts/make_documents.sh \
 
 `make_documents.sh` needs the venv on PATH (it shells out to python) and reads `.png`
 as well as `.jpg`.
+
+## Vertical warping: measured, not yet solved
+
+The text-line ruler measures horizontal geometry only, so a page that is *tilted* leaves its
+bow at zero while looking crooked — the defect that remains on flyers. `pageflat/vlines.py`
+builds the missing reference: vertical strokes (column rules, panel borders) found with a
+vertical opening, grouped into rules, each fitted and measured against a straight vertical.
+
+On the 153-page set, 144 pages have vertical structure:
+
+| | |
+|---|---|
+| median \|tilt\| | **1.36 deg** |
+| p90 | 4.00 deg |
+| max | 9.50 deg |
+| pages above 1 deg | **89** |
+| pages above 2 deg | 50 |
+
+`skew_angle` reports 0.0 deg on some of those pages, which is why the tilt survived: the
+projection-profile method finds no signal on a graphic page.
+
+The correction is calibrated against known rotations — rotating a page +2 deg CCW raises the
+measured tilt by 1.7-2.0, so the angle to apply is -tilt. Rotation alone takes the median
+from 1.70 to 1.11 deg on a 21-page sample (17 -> 12 pages above 1 deg). The per-row shear
+that would remove the residual bow is implemented but **off by default**: it was not
+validated against a known deformation, and an unvalidated correction is worse than none.
+
+## Cropping: two defects, not one
+
+The strip measure counts non-paper at the frame edge, which cannot tell "background left in"
+from "content cut off". Looking at the pages it flags shows both:
+
+* **background left in** — the 102 -> 48 improvement;
+* **content cut at the frame** — `IMG_20260506_224359_p1` has the neighbouring page's prices
+  clipped at its right edge, and `IMG_20260506_225101_p1` a column cut mid-word. Neither is
+  visible to the strip measure, and both come from the spread split landing inside a page
+  rather than on the gutter.
+
+So the cropping goal is **not met**: roughly a third of the sampled pages still carry a
+border defect, and the majority of those are cuts rather than leftovers.
