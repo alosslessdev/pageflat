@@ -210,7 +210,22 @@ Measured that way on the 148 finished pages of the 100-source run:
 | table | 1 | 0.22 % | 0 |
 | **all** | **148** | **0.18 %** | **0** |
 
-Worst page 0.85 %. Against the goal (median ≤ 1 %, none above 3 %) the pages pass
+After rejecting lines built over artwork — a line must have a neighbour within a few
+line heights over the same horizontal stretch, because type is set in blocks and a
+drawing stroke is isolated — the same 143 measurable pages give:
+
+| type (Clef) | pages | median bow | above 3 % |
+|---|---|---|---|
+| graphic | 75 | 0.15 % | 0 |
+| text | 54 | 0.14 % | 0 |
+| photo | 13 | 0.21 % | 0 |
+| table | 1 | 0.28 % | 0 |
+| **all** | **143** | **0.15 %** | **0** |
+
+Five pages have no text-line block at all (pure photographs) and are not measurable
+this way; they need the sheet-edge measure instead.
+
+Worst measurable page 1.35 %. Against the goal (median ≤ 1 %, none above 3 %) the pages pass
 with an order of magnitude to spare.
 
 Two limits found while checking this:

@@ -46,6 +46,23 @@ class CharLine:
     def height(self) -> float:
         return float(np.median([b[3] for b in self.boxes]))
 
+    @property
+    def regularity(self) -> float:
+        """How much the character heights agree, 0..1.
+
+        Type is set in one size per line, so a run of real letters has similar
+        heights. Strokes of a drawing do not: leaves and stems give fragments of
+        every size, which is how a line built over an illustration gives itself
+        away.
+        """
+        hs = np.array([b[3] for b in self.boxes], float)
+        if hs.size < 2 or hs.mean() <= 0:
+            return 0.0
+        return float(1.0 - min(1.0, hs.std() / hs.mean()))
+
+    def is_text(self, min_regularity: float = 0.55) -> bool:
+        return self.regularity >= min_regularity
+
 
 def ink_mask(img_bgr: np.ndarray, dark_only: bool = True) -> np.ndarray:
     """Letter strokes: dark in every channel, which survives coloured paper.
@@ -119,9 +136,41 @@ def group_lines(boxes: list, max_gap: float = 1.6, overlap: float = 0.5) -> list
         # drop fragments: a "line" too wide relative to its height is a merge
         if line.right - line.left > 60 * line.height:
             continue
+        # drop drawing strokes: real type is one size, artwork is not
+        if not line.is_text():
+            continue
         lines.append(line)
     return sorted(lines, key=lambda l: (min(b[1] for b in l.boxes), l.left))
 
 
-def detect_lines(img_bgr: np.ndarray, dark_only: bool = True) -> list[CharLine]:
-    return group_lines(characters(ink_mask(img_bgr, dark_only=dark_only)))
+def _supported(lines: list[CharLine], reach: float = 3.0, min_neighbours: int = 1) -> list[CharLine]:
+    """Keep lines that belong to a block: a neighbour above or below, same span.
+
+    Text is set in blocks, so a real line has another one within a few line
+    heights and over the same horizontal stretch. A stroke of a drawing sits
+    alone, and it is those isolated runs that carry a large "bow" on an
+    illustrated page.
+    """
+    kept = []
+    for i, a in enumerate(lines):
+        ya = np.mean([b[1] + b[3] for b in a.boxes])
+        neighbours = 0
+        for j, b in enumerate(lines):
+            if i == j:
+                continue
+            yb = np.mean([c[1] + c[3] for c in b.boxes])
+            if abs(yb - ya) > reach * max(a.height, b.height):
+                continue
+            if min(a.right, b.right) - max(a.left, b.left) > 0.3 * (a.right - a.left):
+                neighbours += 1
+                if neighbours >= min_neighbours:
+                    break
+        if neighbours >= min_neighbours:
+            kept.append(a)
+    return kept
+
+
+def detect_lines(img_bgr: np.ndarray, dark_only: bool = True,
+                 require_block: bool = True) -> list[CharLine]:
+    lines = group_lines(characters(ink_mask(img_bgr, dark_only=dark_only)))
+    return _supported(lines) if require_block else lines
