@@ -225,12 +225,18 @@ drawing stroke is isolated — the same 143 measurable pages give:
 Five pages have no text-line block at all (pure photographs) and are not measurable
 this way.
 
-**Edge-based measurement does not rescue them.** Traced on the sheet's own boundary it
-gives absurd numbers on a real photograph (`IMG_20260613_192849`: 3126 px on the right
-edge) because the paper mask picks up whatever is light and neutral on the table; traced
-on the printed area instead it gives 292-933 px because that area is not a rectangle on a
-graphic page. A straight-edge ruler only works when a sheet is photographed alone on a
-plain surface with rectangular print — not on this material.
+**Edge-based measurement is sound in principle and currently blocked by segmentation.**
+`pageflat/edges.py` traces each sheet edge and reports its deviation from a straight line,
+and it correctly refuses (returns None) when the sheet has been cropped to its content and
+the "edge" would be the frame. On these photographs it cannot yet be trusted, because the
+mask includes the background: a newspaper on red bedding takes the bedding into the page
+mask (3126 px on the right edge before `_paper_like`), and a botanical book on a light
+duvet keeps the duvet even after it (648 px). Light, neutral bedding and paper are the
+same colour to every heuristic here, so the prerequisite is a trustworthy sheet mask —
+the SAM path (`--sam`) exists for exactly that.
+
+This is also why "are the sheet edges measurable at all" belongs in the classifier: the
+edge ruler is only worth running on frames where the sheet is properly isolated.
 
 Worst measurable page 1.35 %. Against the goal (median ≤ 1 %, none above 3 %) the pages pass
 with an order of magnitude to spare.
