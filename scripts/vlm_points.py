@@ -57,12 +57,16 @@ def ask(url: str, image_path: Path, n: int, timeout: float = 300.0) -> str:
             {"type": "text", "text": PROMPT.format(n=n)},
             {"type": "image_url", "image_url": {"url": encode(image_path)}},
         ]}],
-        "max_tokens": 700,
+        # The model must think to localise (its reasoning contains the actual
+        # coordinates) but will think forever if left alone: the server runs with
+        # --reasoning-budget 1500, so give it that much thought plus room to answer.
+        "max_tokens": 2400,
         "temperature": 0.0,
     }
     r = requests.post(url.rstrip("/") + "/v1/chat/completions", json=body, timeout=timeout)
     r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    msg = r.json()["choices"][0]["message"]
+    return msg.get("content") or msg.get("reasoning_content") or ""
 
 
 def parse(text: str, w: int, h: int) -> list[tuple[float, float]]:

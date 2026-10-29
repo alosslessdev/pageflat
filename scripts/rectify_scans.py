@@ -68,6 +68,9 @@ def main(argv=None) -> int:
     ap.add_argument("--shard", default=None,
                     help="i/N: process every N-th page, so several workers can share the corpus")
     ap.add_argument("--all", action="store_true", help="every scan, not only the failing ones")
+    ap.add_argument("--max-side", type=int, default=2600,
+                    help="working resolution: 64 MP phone photos cannot be run through "
+                         "four warp models in one process without swapping")
     ap.add_argument("--pages-from", default=None,
                     help="JSONL of pages with a drift_frac, to avoid re-measuring all")
     ap.add_argument("--journal", default=None)
@@ -79,13 +82,13 @@ def main(argv=None) -> int:
     scans = Path(args.scans)
     journal = Path(args.journal) if args.journal else scans / "rectify_journal.jsonl"
     if args.all:
-        pages = sorted(scans.glob("*.png"))
+        pages = sorted(list(scans.glob("*.png")) + list(scans.glob("*.jpg")) + list(scans.glob("*.jpeg")))
     elif args.pages_from:
         rows = [json.loads(l) for l in open(args.pages_from) if l.strip()]
         keep = [r["page"] for r in rows if r.get("drift_frac", 0) > args.threshold / 100.0]
         pages = [scans / p for p in keep if (scans / p).exists()]
     else:
-        pages = sorted(scans.glob("*.png"))
+        pages = sorted(list(scans.glob("*.png")) + list(scans.glob("*.jpg")) + list(scans.glob("*.jpeg")))
 
     doctr = DocTrPipeline(device="cuda")
     dewnet = DewarpNetDewarper(device="cuda")
@@ -110,6 +113,10 @@ def main(argv=None) -> int:
             img = cv2.imread(str(page))
             if img is None:
                 continue
+            if args.max_side and max(img.shape[:2]) > args.max_side:
+                s_ = args.max_side / float(max(img.shape[:2]))
+                img = cv2.resize(img, (int(img.shape[1] * s_), int(img.shape[0] * s_)),
+                                 interpolation=cv2.INTER_AREA)
             base = drift(img)
             if args.only_failing and (base is None or base <= args.threshold):
                 skipped += 1

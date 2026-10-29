@@ -39,7 +39,18 @@ def _load():
 
 
 def depth_map(img_bgr: np.ndarray, side: int = SIDE) -> tuple[np.ndarray, float]:
-    """Relative depth at `side` pixels, and the factor back to the input frame."""
+    """Relative depth at `side` pixels, and the factor back to the input frame.
+
+    `PAGEFLAT_DEPTH=da3` switches to Depth Anything 3, which returns the same
+    relative depth *and* the camera pose; the depth alone is a drop-in.
+    """
+    import os
+
+    if os.environ.get("PAGEFLAT_DEPTH", "v2").lower() in ("da3", "v3", "3"):
+        from .da3 import surface_depth
+
+        return surface_depth(img_bgr, side=side), 1.0
+
     import torch
     from PIL import Image
 
