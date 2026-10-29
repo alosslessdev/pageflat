@@ -159,7 +159,10 @@ def straighten_edge(img_bgr: np.ndarray, side: str = "left",
     k = max(3, h // 60 | 1)
     dx = cv2.GaussianBlur(dx.reshape(-1, 1), (1, k), 0).ravel()
     gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
-    map_x = np.clip(gx - dx.astype(np.float32)[:, None], 0, w - 1)
+    # + dx, not - dx: the displacement is measured as (edge - straight), so the
+    # row has to move *towards* its straight fit. Measured on the catalogue spread:
+    # -dx takes the left-edge deviation from 9.0 px to 19.6 px, +dx to 0.3 px.
+    map_x = np.clip(gx + dx.astype(np.float32)[:, None], 0, w - 1)
     out = cv2.remap(img_bgr, map_x, gy, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
     return out, {"corrected": True, "median_shift": round(float(np.median(np.abs(dx))), 1),
                  "max_shift": round(float(np.abs(dx).max()), 1)}

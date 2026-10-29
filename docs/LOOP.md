@@ -152,3 +152,15 @@ frame, which is exactly the case `edges.py` already refuses when it is not.
 This also explains the whole plateau: it1 -> it2 -> it3 moved the rule-tilt by tenths of a
 degree while the page was already square to 0.18 deg. The number that *should* be in the
 target table is the edge slope, not the rule tilt.
+
+### The edge shear works: the sign was inverted
+
+`straighten_edge` measured the displacement as (edge - straight) and then remapped with
+`gx - dx`, which moved every row *away* from its straight fit and doubled the curvature:
+left-edge deviation 9.0 -> 19.6 px. With `gx + dx` the same page goes **9.0 -> 0.3 px**, and
+the visible result is a straight, vertical left edge where the green side band used to bow
+inward at the top.
+
+Same class of bug as the tilt rotation, and the same lesson: a displacement measured against
+a reference has to be applied *towards* it, and that direction has to be checked against a
+known case rather than assumed.
