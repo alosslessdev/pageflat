@@ -15,15 +15,35 @@ import numpy as np
 
 TILE = 2048
 OVERLAP = 96
+_CACHE: dict = {}
+_CACHE_MAX = 64
+
+
+def _fingerprint(img: np.ndarray) -> bytes:
+    import hashlib
+
+    h = hashlib.blake2b(digest_size=16)
+    h.update(str(img.shape).encode())
+    h.update(np.ascontiguousarray(img[:8]).tobytes())
+    h.update(np.ascontiguousarray(img[-8:]).tobytes())
+    return h.digest()
 
 
 def text_lines_tiled(img: np.ndarray, tile: int = TILE, overlap: int = OVERLAP) -> list:
     """Lines in full-image coordinates, detected on tiles of `tile` pixels."""
     from .detect import text_lines
 
+    # The router asks for the same page's lines several times — base, every
+    # candidate, the finalists — and each ask is a full pass over four tiles.
+    key = (tile, overlap, _fingerprint(img))
+    if key in _CACHE:
+        return _CACHE[key]
+
     h, w = img.shape[:2]
     if max(h, w) <= tile:
-        return text_lines(img)
+        out = text_lines(img)
+        _CACHE[key] = out
+        return out
 
     step = tile - overlap
     ys = list(range(0, max(1, h - tile + 1), step)) or [0]
@@ -42,4 +62,7 @@ def text_lines_tiled(img: np.ndarray, tile: int = TILE, overlap: int = OVERLAP) 
             for line in text_lines(patch):
                 out.append((line[0] + x, line[1] + max(0, y),
                             line[2] + x, line[3] + max(0, y)))
+    if len(_CACHE) > _CACHE_MAX:
+        _CACHE.clear()
+    _CACHE[key] = out
     return out

@@ -114,7 +114,8 @@ def main(argv=None) -> int:
         out_dir = args.out or str(Path(files[0]).parent / "ocr")
     else:
         out_dir = args.out or str(root / "ocr")
-        files = [str(p) for p in sorted(root.glob("*.png"))]
+        files = [str(p) for p in sorted(
+            list(root.glob("*.png")) + list(root.glob("*.jpg")) + list(root.glob("*.jpeg")))]
     lang = _lang()
     print(f"{len(files)} scans, lang={lang or '-'}", file=sys.stderr)
 
