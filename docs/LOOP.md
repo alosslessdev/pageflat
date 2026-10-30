@@ -210,3 +210,13 @@ page rotated by it, the answer cannot be acted on; the code now asks docTR's pag
 classifier instead, and if that disagrees it uses it, otherwise it leaves the page alone
 rather than rotating on an answer the detector itself contradicts. All three —
 `IMG_20260506_224606`, `IMG_20260506_224643`, `IMG_20260506_225358` — come out at `needs 0`.
+
+### The cut metric was counting its own seam
+
+`cut_lines` counted a line touching **any** frame side, but when a spread is split the seam is
+a border the pipeline just invented: a line touching it is not cut, the page continues into
+the other half. 21 of the 43 "cut" pages were such halves. Excluding the seam side (right for
+`_p1`, left for `_p2`) drops the count to **37**, and the pages that matter are the **22
+whole** ones where the frame is the photograph's own border. Worst unexamined: `225734` (6),
+`225042` (6), `224606` (4 — and also an orientation-contradiction page, so possibly a
+rotation consequence rather than a crop).

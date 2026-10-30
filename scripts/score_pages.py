@@ -55,15 +55,27 @@ def bow_pct(im: np.ndarray, min_chars: int = 6) -> float | None:
     return 100.0 * st.median(vals) / im.shape[1]
 
 
-def cut_lines(im: np.ndarray, edge: int = 6) -> int:
-    """Detected lines that touch the frame: their box is clipped by it."""
+def cut_lines(im: np.ndarray, edge: int = 6, seam: str | None = None) -> int:
+    """Detected lines that touch the frame: their box is clipped by it.
+
+    `seam` is the side created by splitting a spread (`right` for `_p1`, `left`
+    for `_p2`). A line touching the seam is not cut — the page continues into the
+    other half — so that side is not counted.
+    """
     n = 0
     for l in detect_lines(im):
         if len(l.boxes) < 3:
             continue
-        if (l.left <= edge or l.right >= im.shape[1] - edge
-                or min(b[1] for b in l.boxes) <= edge
-                or max(b[1] + b[3] for b in l.boxes) >= im.shape[0] - edge):
+        hit = []
+        if seam != "left" and l.left <= edge:
+            hit.append("left")
+        if seam != "right" and l.right >= im.shape[1] - edge:
+            hit.append("right")
+        if min(b[1] for b in l.boxes) <= edge:
+            hit.append("top")
+        if max(b[1] + b[3] for b in l.boxes) >= im.shape[0] - edge:
+            hit.append("bottom")
+        if hit:
             n += 1
     return n
 
@@ -95,7 +107,8 @@ def main(argv=None) -> int:
             "vbow": v.get("bow_pct"),
             "rules": v["rules"],
             "band": round(band_frac(im), 3),
-            "cut_lines": cut_lines(im),
+            "cut_lines": cut_lines(im, seam=("right" if f.stem.endswith("_p1") else
+                                             "left" if f.stem.endswith("_p2") else None)),
             "rot": detect_rotation(orient_small),
         })
 
