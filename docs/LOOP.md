@@ -220,3 +220,24 @@ the other half. 21 of the 43 "cut" pages were such halves. Excluding the seam si
 whole** ones where the frame is the photograph's own border. Worst unexamined: `225734` (6),
 `225042` (6), `224606` (4 — and also an orientation-contradiction page, so possibly a
 rotation consequence rather than a crop).
+
+### Why `IMG_20251229_122443` keeps a strip at the bottom: the mask over-reaches
+
+The page looks right except for a band of table along the bottom. It is not the trim's fault —
+the trim cannot see it, because a pale table is *paper-like* (bottom band non-paper: 0.00 at
+3 %, 0.00 at 6 %, 0.02 at 10 %). The fault is upstream, in the mask that defines the quad:
+
+| mask | coverage | vertical extent (frame is 900 px) |
+|---|---|---|
+| docTR page mask | 0.831 | y 7 – **893** |
+| SAM sheet mask | 0.501 | y 0 – **780** |
+| printed area alone | — | ink stops at **~790** |
+
+The page's own bottom edge is around 800; docTR's mask runs ~90-110 px past it onto the table,
+and the homography then maps that table into the output. The print gives the decisive clue:
+rows 700-740 carry 254-343 ink pixels, and by row 800 it is 34 and falling to 0 — so the sheet
+ends where the ink ends plus a margin, and the mask does not.
+
+**The fix belongs in segmentation, not in cropping**: bound the mask where the print stops.
+A cheap, checkable version is to find the strongest horizontal edge below the last ink row —
+the paper-to-table boundary — and use that as the mask's bottom.
