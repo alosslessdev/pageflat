@@ -31,6 +31,7 @@ class Settings:
     straighten_edges: bool = True   # shear rows so the sheet's own edge is a straight line
     orient_url: str = ""            # vision model for pages where OCR cannot decide
     quad_url: str = ""              # vision model for the sheet's four corners
+    align_axes: bool = True         # align feature lines to the axes before the warp
     fix_tilt: bool = False          # OFF: the rule-based lean squares the *content*, not
                                     # the page (see docs/LOOP.md) and made the page edge
                                     # worse on 13 of 30 pages
@@ -332,9 +333,8 @@ def _deskew_final(page: np.ndarray, max_angle: float = 12.0) -> tuple[np.ndarray
     # corners to the frame, and the content checks then rejected nine of a hundred
     # pages: the geometry was right and the canvas was wrong. `rotate_expand` keeps
     # every pixel and crops back to the sheet afterwards.
-    raw = orientation.squareness(small)
-    if raw is not None and abs(raw) >= 0.3:
-        return _rotate_expand(page, float(raw)), float(raw)
+    # Axis alignment now happens once, before the dewarp (see `align_axes`): one
+    # authority, measured on the sheet rather than on the finished page.
     out, angle = orientation.deskew(small, max_angle=max_angle)
     if abs(float(angle)) < 0.3:
         return page, float(angle)
@@ -600,6 +600,11 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
             try:
                 if settings.deskew:
                     rect, _ = orientation.deskew(rect, max_angle=10.0)
+                if settings.align_axes:
+                    from .aad import rotate_to_align
+
+                    rect, _ai = rotate_to_align(rect)
+                    res.pick["align"] = _ai
                     if settings.straighten_edges:
                         from .edges import straighten_edge
 
@@ -813,6 +818,11 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
 
             if settings.deskew:
                 rect, _ = orientation.deskew(rect, max_angle=10.0)
+            if settings.align_axes:
+                from .aad import rotate_to_align
+
+                rect, _ai = rotate_to_align(rect)
+                res.pick["align"] = _ai
             if settings.straighten_edges:
                 from .edges import straighten_edge
 
