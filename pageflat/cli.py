@@ -91,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="concurrent images inside one process; keeps the GPU busy "
                          "while the CPU decodes/encodes the neighbouring images")
     ap.add_argument("--json", help="write a JSON report of all results here")
+    ap.add_argument("--orient-url", default="",
+                    help="vision model (llama-server) used to decide orientation on pages "
+                         "where OCR has nothing to read; ~40 s per such page")
     ap.add_argument("--no-edge-shear", action="store_true",
                     help="do not shear rows to straighten the sheet's own edge")
     ap.add_argument("--no-tilt", action="store_true",
@@ -111,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         pick_metric=args.pick_metric,
         use_depth=not args.no_depth,
         paper_reach=args.paper_reach,
+        orient_url=args.orient_url,
         straighten_edges=not args.no_edge_shear,
         fix_tilt=not args.no_tilt,
         save_debug=args.debug,

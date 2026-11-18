@@ -508,3 +508,18 @@ and that is ~40 s per page rather than a local call.
 
 Recorded because the cost depends on it: 15 % of pages × 5,737 is ~860 calls. At 40 s that is ~10 h
 of model time; at a local 4B's ~8 s it would be ~2 h, but 2 of 3 is not good enough to ship.
+
+### The vision fallback is wired, and not default
+
+`--orient-url` asks a four-way question about pages where no rotation was earned and there is no
+text grid. Two things were measured while wiring it:
+
+* **accuracy**: the local Qwen3.5-4B answered 2 of 3 (one confident wrong direction), a
+  DeepSeek-class model 3 of 3. So the flag is useful only with a strong endpoint.
+* **concurrency**: in a batch at `--threads 2` two of seven pages came back `error`; the same page
+  run alone is `ok`. The local server has one slot and the requests queue past their timeout. Run
+  this path with `--workers 1` or against an endpoint that can take concurrent calls.
+
+Off by default (`orient_url=""`), because a 2-of-3 decider with confident wrong directions is worse
+than the current behaviour of leaving the page alone: leaving it alone is right whenever the page is
+already upright, and wrong in a way that is visible rather than destructive.

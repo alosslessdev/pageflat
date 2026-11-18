@@ -29,6 +29,7 @@ class Settings:
     trim_background: bool = False  # opt-in: drop saturated background (bed sheets, table cloth)
     trim_edges: bool = True         # take the strip of table / neighbour off the frame edge
     straighten_edges: bool = True   # shear rows so the sheet's own edge is a straight line
+    orient_url: str = ""            # vision model for pages where OCR cannot decide
     fix_tilt: bool = False          # OFF: the rule-based lean squares the *content*, not
                                     # the page (see docs/LOOP.md) and made the page edge
                                     # worse on 13 of 30 pages
@@ -297,7 +298,7 @@ def _deskew_final(page: np.ndarray, max_angle: float = 12.0) -> tuple[np.ndarray
                           borderMode=cv2.BORDER_REPLICATE), float(angle)
 
 
-def _orient_final(page: np.ndarray, detector) -> tuple[np.ndarray, int]:
+def _orient_final(page: np.ndarray, detector, orient_url: str = "") -> tuple[np.ndarray, int]:
     """Turn the finished page upright, but only when two detectors agree.
 
     The fast classifier is a MobileNet that sees a thumbnail; on half a spread it
@@ -320,6 +321,16 @@ def _orient_final(page: np.ndarray, detector) -> tuple[np.ndarray, int]:
         # reads 180 with one interpolation and 0 with the other).
         small = cv2.resize(page, (int(w * s_), int(h * s_)), interpolation=cv2.INTER_LINEAR)
     angle = orientation.detect_rotation(small)
+    if angle not in _ROTATE and orient_url:
+        # no rotation was earned: this is the class where OCR is blind (15 % of the
+        # benchmark), and a vision model is the only thing that reads it
+        from .charlines import detect_lines
+
+        if len([l for l in detect_lines(small) if len(l.boxes) >= 6]) < 5:
+            vis = orientation.ask_vision(orient_url, page)
+            if vis in _ROTATE and vis:
+                return cv2.rotate(page, _ROTATE[vis]), vis
+        return page, angle
     if angle in _ROTATE:
         # A page with no text grid is a flyer, and a flyer's mirrored advertising
         # banner "reads" better upside down: three pages in it7 were flagged while
@@ -330,7 +341,7 @@ def _orient_final(page: np.ndarray, detector) -> tuple[np.ndarray, int]:
         grid = [l for l in detect_lines(small) if len(l.boxes) >= 6]
         alt = orientation.detect_rotation_fast(page, device=str(detector.device))
         if len(grid) < 5 or alt != angle:
-            return page, 0
+            angle = 0
         # A detector that answers the same angle for a page and for that page
         # rotated by it is contradicting itself — three pages do exactly this. Ask
         # a different model rather than trusting an answer that cannot be acted on.
@@ -593,7 +604,7 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                         # misoriented in it6 against 7 with this alone.
                         if settings.fix_tilt:
                             page = _tilt_final(page)
-                        page, _ang = _orient_final(page, detector)
+                        page, _ang = _orient_final(page, detector, settings.orient_url)
                         if _ang in _ROTATE:
                             res.rotation = _ang
                         if settings.deskew:
@@ -842,7 +853,7 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
             if settings.auto_orient:
                 if settings.fix_tilt:
                     page = _tilt_final(page)
-                page, final_angle = _orient_final(page, detector)
+                page, final_angle = _orient_final(page, detector, settings.orient_url)
                 if final_angle in _ROTATE:
                     res.rotation = final_angle
                 if settings.deskew:

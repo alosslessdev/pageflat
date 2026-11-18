@@ -189,3 +189,53 @@ def detect_rotation_fast(img_bgr: np.ndarray, device: str = "cuda") -> int:
     except Exception:
         pass
     return detect_rotation(img_bgr)
+
+
+_ORIENT_QUESTION = (
+    "Which one word describes this page? Answer with a single letter, nothing else.\n"
+    "A) the page is upright\n"
+    "B) the page needs a 90 degree clockwise turn\n"
+    "C) the page needs a 180 degree turn\n"
+    "D) the page needs a 90 degree counter-clockwise turn"
+)
+_ORIENT_ANSWER = {"A": 0, "B": 90, "C": 180, "D": 270}
+
+
+def ask_vision(url: str, img_bgr: np.ndarray, timeout: float = 300.0) -> int | None:
+    """Orientation from a vision model, for pages where OCR has nothing to read.
+
+    Measured: raw OCR voting calls upright pages 180 on flyers, and 15 % of the
+    benchmark has no readable prose at all. A four-way classification works where a
+    coordinate request does not — but the model has to be a strong one: a local 4B
+    answered 2 of 3 correctly with one confident wrong direction, a DeepSeek-class
+    model 3 of 3.
+    """
+    import base64
+
+    import requests
+
+    h, w = img_bgr.shape[:2]
+    s = 896 / max(h, w)
+    small = cv2.resize(img_bgr, (int(w * s), int(h * s))) if s < 1 else img_bgr
+    ok, buf = cv2.imencode(".jpg", small)
+    if not ok:
+        return None
+    body = {
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": _ORIENT_QUESTION},
+            {"type": "image_url",
+             "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(buf).decode()}},
+        ]}],
+        "max_tokens": 900, "temperature": 0.0,
+    }
+    try:
+        r = requests.post(url.rstrip("/") + "/v1/chat/completions", json=body, timeout=timeout)
+        r.raise_for_status()
+        msg = r.json()["choices"][0]["message"]
+        text = (msg.get("content") or msg.get("reasoning_content") or "").strip().upper()
+    except Exception:  # noqa: BLE001
+        return None
+    for ch in text:
+        if ch in _ORIENT_ANSWER:
+            return _ORIENT_ANSWER[ch]
+    return None
