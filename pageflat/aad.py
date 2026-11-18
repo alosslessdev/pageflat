@@ -58,7 +58,10 @@ def _horizontal_angles(img_bgr: np.ndarray, min_chars: int = 5,
         if not left or not right:
             continue
         ang = float(np.degrees(np.arctan2(np.mean(right) - np.mean(left), span / 2.0)))
-        if abs(ang) > 30:            # not a line we can attribute to an axis
+        # Horizontal text is horizontal: a "line" at 10 degrees is characters from
+        # different rows joined by the grouping. Measured on a Milwaukee flyer, the
+        # slopes ran to 11 degrees, and those outliers dragged every angle estimate.
+        if abs(ang) > 8:
             continue
         out.append((ang, float(span)))
     return out
@@ -113,6 +116,7 @@ def rotate_to_align(img_bgr: np.ndarray, max_iters: int = 3,
     cur = img_bgr
     best = measure(cur)
     history = [round(best.value, 3) if best.value == best.value else None]
+    stalls = 0
     for _ in range(max_iters):
         if best.value != best.value or best.value <= tol:
             break
@@ -129,7 +133,11 @@ def rotate_to_align(img_bgr: np.ndarray, max_iters: int = 3,
         got = measure(cand)
         history.append(round(got.value, 3) if got.value == got.value else None)
         if got.value != got.value or got.value >= best.value - 1e-3:
-            break                      # no improvement: keep what we had
+            # Stop at the first pass that does not improve and keep the page we had.
+            # Allowing one flat pass to continue was tried and made a page worse
+            # (2.27 -> 2.57 -> 2.82), because each rotation changes the lines the
+            # next measurement sees.
+            break
         cur, best = cand, got
     return cur, {"aad": round(best.value, 3) if best.value == best.value else None,
                  "iterations": len(history) - 1, "history": history}
