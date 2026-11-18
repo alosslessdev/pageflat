@@ -85,7 +85,37 @@ def main(argv=None) -> int:
     ap.add_argument("pages")
     ap.add_argument("--json", default=None)
     ap.add_argument("--side", type=int, default=1400)
+    ap.add_argument("--sources", default=None,
+                    help="directory of source photographs (symlinks to them); pages whose "
+                         "source frame does not contain the whole sheet are reported "
+                         "separately, because their cuts were never ours to fix")
     args = ap.parse_args(argv)
+
+    sources = {}
+    if args.sources:
+        for p in Path(args.sources).glob("*.jpg"):
+            sources[p.stem] = p
+        for p in Path(args.sources).glob("*.jpeg"):
+            sources[p.stem] = p
+
+    def source_limited(name: str) -> bool | None:
+        """True when the sheet touches the source frame: the camera cut it, not us."""
+        stem = name.replace(".png", "")
+        for suffix in ("_p1", "_p2", "_p3"):
+            if stem.endswith(suffix):
+                stem = stem[: -len(suffix)]
+        src = sources.get(stem)
+        if src is None:
+            return None
+        im = cv2.imread(str(src))
+        if im is None:
+            return None
+        s_ = 900 / max(im.shape[:2])
+        sm = cv2.resize(im, (int(im.shape[1] * s_), int(im.shape[0] * s_)))
+        p_ = _paper_like(sm)
+        edge = max(4, int(0.005 * min(sm.shape[:2])))
+        return bool(p_[:edge].mean() > 0.3 or p_[-edge:].mean() > 0.3
+                    or p_[:, :edge].mean() > 0.3 or p_[:, -edge:].mean() > 0.3)
 
     rows = []
     for f in sorted(Path(args.pages).glob("*.png")):
@@ -109,6 +139,7 @@ def main(argv=None) -> int:
             "band": round(band_frac(im), 3),
             "cut_lines": cut_lines(im, seam=("right" if f.stem.endswith("_p1") else
                                              "left" if f.stem.endswith("_p2") else None)),
+            "source_limited": source_limited(f.name),
             "rot": detect_rotation(orient_small),
         })
 
@@ -124,7 +155,13 @@ def main(argv=None) -> int:
     if vb:
         print(f"vertical bow median  {st.median(vb):.2f} %  p90 {np.percentile(vb, 90):.2f}")
     print(f"background band >.5  {sum(1 for r in rows if r['band'] > 0.5)}")
-    print(f"pages with cut lines {sum(1 for r in rows if r['cut_lines'] > 0)}")
+    cut = [r for r in rows if r["cut_lines"] > 0]
+    print(f"pages with cut lines {len(cut)}")
+    if args.sources and any(r.get("source_limited") is not None for r in rows):
+        lim = [r for r in cut if r.get("source_limited")]
+        ours = [r for r in cut if r.get("source_limited") is False]
+        unk = [r for r in cut if r.get("source_limited") is None]
+        print(f"  of those: source-limited {len(lim)}, ours {len(ours)}, unknown {len(unk)}")
     print(f"pages misoriented    {sum(1 for r in rows if r['rot'] != 0)}")
     if args.json:
         Path(args.json).write_text(json.dumps(rows, indent=1))

@@ -547,3 +547,20 @@ So of the three worst checked: one is the camera's (`225042`), one is ours (`225
 (`225734`) is a page the pipeline left rotated, so its "cuts" are a rotation symptom. The count of
 37 is a mixture of three different defects wearing one number, and separating them needs exactly
 what was done here, page by page.
+
+### The source-attribution test does not discriminate either
+
+A scorer flag was added to separate camera-cut pages from ours: "paper-like pixels touching the
+source frame". It reports **39 of 39 cut pages as source-limited, 0 as ours** — which is the
+tell-tale of a test that is always true, not a finding.
+
+The reason is the same one that defeated the mask boundary: **a pale table is paper-coloured**, so
+the source frame's border reads as paper on every photograph, and the flag fires regardless of
+whether the sheet is inside the frame or running off it. The visual checks stand on their own
+(`225042` camera-cut, `225300` ours); the automatic flag does not, and its output must not be
+quoted as an attribution.
+
+That is now four attempts at "where is the paper" — mask boundary, brightness step, gradient peak,
+and frame-border paper-ness — all defeated by the same single fact about this material. A learned
+segmenter (SAM 2 or a document-specific model), or a vision model per page, is the only route left
+that has not already failed here.
