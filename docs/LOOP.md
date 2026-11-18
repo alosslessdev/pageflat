@@ -580,3 +580,18 @@ That is the third independent measurement pointing the same way (orientation 2/3
 nothing vs exact, and 15 % of pages needing it at all), and it settles the architecture question:
 **cheap classical rules for the 85 % of pages that carry text, a strong vision model for the rest** —
 with the local model reserved for tasks whose output is a single label.
+
+### The strong-model route is wired, with the mask as fallback
+
+`--quad-url` takes the sheet's four corners from a vision model when it answers, and falls back to
+the learned mask when it does not — smoke-tested against an unreachable endpoint: the run completes
+and the page is accepted, so a missing model changes nothing.
+
+That makes the architecture executable rather than aspirational:
+
+* **85 % of pages** — classical mask, split guard, deskew, earned rotation: free and accurate.
+* **the other 15 %** — `--quad-url` for the outline and `--orient-url` for the orientation, ~40 s
+  each with a strong endpoint, and the local 4B measured as insufficient for both.
+
+Both flags are off by default and both fail back to the classical path, so the shipped default is
+the configuration the benchmark actually measured.

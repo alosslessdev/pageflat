@@ -30,6 +30,7 @@ class Settings:
     trim_edges: bool = True         # take the strip of table / neighbour off the frame edge
     straighten_edges: bool = True   # shear rows so the sheet's own edge is a straight line
     orient_url: str = ""            # vision model for pages where OCR cannot decide
+    quad_url: str = ""              # vision model for the sheet's four corners
     fix_tilt: bool = False          # OFF: the rule-based lean squares the *content*, not
                                     # the page (see docs/LOOP.md) and made the page edge
                                     # worse on 13 of 30 pages
@@ -141,6 +142,19 @@ def rectified_sheets(img: np.ndarray, detector, settings: Settings
     then clipped whichever sheet sat further inside the hull.
     """
     small, scale = resize_long_side(img, settings.mask_work_side)
+    if settings.quad_url:
+        # A strong vision model places the four corners where the learned mask
+        # over-reaches onto pale furniture (measured: 782 px against a true edge of
+        # 780, where the mask says 893). Only attempted when the endpoint answers;
+        # the mask below is the fallback, so a missing model changes nothing.
+        from .segment import ask_quad
+
+        quad = ask_quad(settings.quad_url, small)
+        if quad is not None and cv2.contourArea(quad.astype(np.float32)) > 0.05 * small.size / 3:
+            pts = (quad / scale).astype(np.float32)
+            rect = perspective.warp_sheet(img, pts, max_side=settings.max_intermediate)
+            area = abs(cv2.contourArea(quad)) / float(small.shape[0] * small.shape[1])
+            return [(rect, pts.astype(np.float32), area, 1.0)]
     if settings.use_aligner:
         # a trained corner regressor beats a mask hull on cluttered tables; it
         # also says how sure it is, so a bad frame is refused instead of guessed
