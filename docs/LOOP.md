@@ -357,3 +357,25 @@ The lesson repeats what the loop already showed three times: a change that fixes
 lose at scale, and the only way to know is the 100-page run — which is also why the run has to be
 affordable, and why the arbitration path (one extra model pass and a second warp per page) was
 not adopted for a two-point gain that did not appear.
+
+### The orientation metric is fooled by mirrored design, and so is the correction
+
+it7 (the shipped configuration) scores 15 of 129 "misoriented", it4 scored 7 and it6 13, with
+code changes far too small to explain a doubling. Looking at the pages the scorer flags:
+
+| page | what it actually is |
+|---|---|
+| `IMG_20260506_224512` | a flyer with a **mirrored advertising banner** along the bottom |
+| `IMG_20260506_224606` | same: a reversed `DIAaDIA BLACKBERRY` strip |
+| `IMG_20260506_224643` | header and body upright and readable |
+
+The pages are upright. The OCR-scored detector votes for a rotation because the mirrored banner
+"reads" better upside down — and since the pipeline uses the same detector to decide, it is both
+a bad metric and a bad corrector on graphic pages. That explains the run-to-run drift: every
+stage that changes the pixels changes which side of the vote wins.
+
+**Consequence:** the orientation count cannot be tuned against, and rotating on it can make an
+upright page worse. The robust rule is narrower than what is implemented — rotate only when the
+page has a text grid *and* the fast classifier agrees with the OCR score — and everything else
+should be left alone. That is the next change to make, and it needs a hand-labelled orientation
+sample to measure against, because the automatic verdict is not trustworthy.
