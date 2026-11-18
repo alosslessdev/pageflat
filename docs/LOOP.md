@@ -413,3 +413,30 @@ Results on the nine hard pages: **7 upright, 1 correctly left alone, 1 known mis
 So the rule trades one real miss for three prevented false rotations. That is the right way round
 — rotating an upright page destroys it, while leaving an upside-down one is visible and fixable —
 but it is a trade, not a fix, and it cannot be closed without a hand-labelled orientation sample.
+
+### The labelling attempt, and why it did not settle anything
+
+Six flagged pages were rendered in montages at ~340 px and labelled by eye: two looked rotated,
+four upright. Then the OCR scores behind each verdict were printed:
+
+| page | my label | score 0 | 90 | 180 | 270 | what OCR prefers |
+|---|---|---|---|---|---|---|
+| `202334` | rotated | 249 | 0 | **442** | 0 | 180 |
+| `224123` | rotated | **2953** | 0 | 190 | 0 | **upright, by 15x** |
+| `224218` | upright | 173 | 336 | **1464** | 211 | 180 |
+| `224512` | upright | 0 | 0 | **181** | 0 | 180 |
+| `224551` | upright | **1845** | 0 | 0 | 0 | upright |
+| `224633` | upright | 0 | 0 | 0 | **568** | 270 |
+
+`224123` is the case that matters: I called it rotated, and its upright OCR score beats the best
+rotation by **15x**. Either the page is upright and I misread a vertical design element at 340 px,
+or OCR finds 2953 units of text in a rotated page — the first is far more likely.
+
+So **the labels are unreliable at that scale**, not just the metric. Three attempts at this now —
+metric, correction, and my own eye at 340 px — have disagreed with each other, and the only route
+left is one page at a time at a readable size, with the OCR scores printed alongside so a
+disagreement is visible rather than silent.
+
+What the table *does* establish: on four of six pages every rotation scores near zero except one,
+which means those pages carry almost no readable text either way and the vote among 0/90/180/270
+is decided by a handful of OCR fragments. That is not a measurement to tune against.
