@@ -290,6 +290,30 @@ def _tilt_final(page: np.ndarray) -> np.ndarray:
     return out if info.get("corrected") else page
 
 
+def _rotate_expand(img: np.ndarray, angle_deg: float) -> np.ndarray:
+    """Rotate without losing corners, then crop back to the page."""
+    h, w = img.shape[:2]
+    M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), angle_deg, 1.0)
+    cos, sin = abs(M[0, 0]), abs(M[0, 1])
+    nw, nh = int(h * sin + w * cos), int(h * cos + w * sin)
+    M[0, 2] += nw / 2.0 - w / 2.0
+    M[1, 2] += nh / 2.0 - h / 2.0
+    rot = cv2.warpAffine(img, M, (nw, nh), flags=cv2.INTER_CUBIC,
+                         borderMode=cv2.BORDER_REPLICATE)
+    from .segment import print_region
+
+    area = print_region(rot)
+    ys, xs = np.where(area)
+    if ys.size < 1000:
+        return rot
+    pad = int(0.01 * max(nw, nh))
+    y0, y1 = max(0, ys.min() - pad), min(nh, ys.max() + pad)
+    x0, x1 = max(0, xs.min() - pad), min(nw, xs.max() + pad)
+    if (y1 - y0) < 0.3 * nh or (x1 - x0) < 0.3 * nw:
+        return rot
+    return rot[y0:y1, x0:x1]
+
+
 def _deskew_final(page: np.ndarray, max_angle: float = 12.0) -> tuple[np.ndarray, float]:
     """Remove the fine rotation on the finished page.
 
@@ -304,10 +328,13 @@ def _deskew_final(page: np.ndarray, max_angle: float = 12.0) -> tuple[np.ndarray
     if max(h, w) > 1200:
         s_ = 1200 / float(max(h, w))
         small = cv2.resize(page, (int(w * s_), int(h * s_)), interpolation=cv2.INTER_AREA)
-    # `skew_angle`, not the text-line angle. The text-line version measured better on
-    # its own six worst pages (3.69 -> 1.11 deg and five others), but on the whole
-    # benchmark it made squareness *worse* (median 0.42 -> 0.54, pages above 1 deg
-    # 11 -> 14) and cost nine pages to the quality gate. Reverted.
+    # Rotate into a *padded* canvas. The earlier squareness rotation lost the page's
+    # corners to the frame, and the content checks then rejected nine of a hundred
+    # pages: the geometry was right and the canvas was wrong. `rotate_expand` keeps
+    # every pixel and crops back to the sheet afterwards.
+    raw = orientation.squareness(small)
+    if raw is not None and abs(raw) >= 0.3:
+        return _rotate_expand(page, float(raw)), float(raw)
     out, angle = orientation.deskew(small, max_angle=max_angle)
     if abs(float(angle)) < 0.3:
         return page, float(angle)
