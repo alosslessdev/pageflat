@@ -595,3 +595,35 @@ That makes the architecture executable rather than aspirational:
 
 Both flags are off by default and both fail back to the classical path, so the shipped default is
 the configuration the benchmark actually measured.
+
+## Per-page vision evaluation of the benchmark (64 pages, 8 agents)
+
+Eight subagents, each judging eight pages in a 2x2 montage (760 px tiles), answered four questions
+per page. Totals over the 64 pages:
+
+| finding | vision model | my automatic metric (129 pages) |
+|---|---|---|
+| rotated (not upright) | **6** | 7 |
+| any content cut | **37** | 39 |
+| any non-page at the border | **43** | 43 (band > 0.5) |
+| **visibly not flat** | **32 (50 %)** | **0** (bow median 0.04 %, none above 3 %) |
+
+The first three agree with the automatic metrics within a page or two — independent confirmation of
+the cut and background counts, and of the six or seven pages that still need turning.
+
+**The fourth is the finding.** Half the pages are judged visibly not flat by a model that is looking
+at them, while the bow metric says none are. Both are right about different things: the bow measures
+whether *text lines are straight*, the model judges whether *the page sits square in the frame* —
+and ~1° of residual tilt plus up to 1.8° of skew is visible to the eye and to a vision model, and
+invisible to a line-straightness measure. That is the same defect I confirmed by eye on
+`224643` (readable, correctly oriented, clearly not square).
+
+**Reliability, measured rather than assumed.** On the pages I could check independently, the
+orientation verdict was right **3 of 3** (`224351` → rotate_180, `224512` → rotate_cw_90,
+`224505` → rotate_cw_90), including the page you corrected. Across agents the `flat` verdict is
+inconsistent — one agent returned true for all eight of its pages, another false for all eight — so
+flatness at 380 px per page is not yet a reliable reading; orientation is.
+
+**Consequence for the target table:** the flattening goal is met for *straight text* and not met for
+*page squareness*. The next metric to add is page squareness (the angle of the sheet's own edges in
+the output), and the next fix is to drive deskew from it.
