@@ -538,3 +538,12 @@ number should be quoted with that caveat rather than as a defect count.
 
 The same page is also upside down in the source — which is the case the routed vision model exists
 for, and the case the OCR vote gets wrong.
+
+**But not all of them are inherited.** `IMG_20260506_225300`, another 6-line cut page, has its
+source spread **completely inside the frame** with margins on every side — just photographed 90
+degrees round. Everything cut on that page is ours.
+
+So of the three worst checked: one is the camera's (`225042`), one is ours (`225300`), and one
+(`225734`) is a page the pipeline left rotated, so its "cuts" are a rotation symptom. The count of
+37 is a mixture of three different defects wearing one number, and separating them needs exactly
+what was done here, page by page.
