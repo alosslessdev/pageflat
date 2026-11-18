@@ -523,3 +523,18 @@ text grid. Two things were measured while wiring it:
 Off by default (`orient_url=""`), because a 2-of-3 decider with confident wrong directions is worse
 than the current behaviour of leaving the page alone: leaving it alone is right whenever the page is
 already upright, and wrong in a way that is visible rather than destructive.
+
+### Some "cut" pages were cut by the camera, not by the crop
+
+`IMG_20260506_225042` is one of the two worst remaining cut pages. Its **source** photograph shows
+the newspaper spread on a wooden table with **the page running off the top edge of the frame** and
+other newspapers stacked to the left — the picture itself does not contain the whole sheet, and the
+pipeline cannot recover what was never photographed.
+
+That matters for the metric: `cut_lines` counts any text line touching the frame, and cannot tell
+"the crop cut it" from "the camera cut it". So **37 is an upper bound on pages we damaged**, not a
+census of our errors. Separating the two requires looking at each source frame, which is why the
+number should be quoted with that caveat rather than as a defect count.
+
+The same page is also upside down in the source — which is the case the routed vision model exists
+for, and the case the OCR vote gets wrong.
