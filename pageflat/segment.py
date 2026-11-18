@@ -83,3 +83,52 @@ def extend_to_lines(img_bgr: np.ndarray, mask: np.ndarray,
              max(0, int(x0) - pad):int(x1) + pad] = True
         grown += 1
     return keep.astype(np.float32), {"grown_for_lines": grown}
+
+
+_VLM_QUAD_QUESTION = (
+    "This is a photograph of a printed sheet. Give the four corners of the SHEET — the paper's own "
+    "boundary against the table or whatever it lies on, not the image border and not a neighbouring "
+    "sheet. Answer on a 0-1000 grid where (0,0) is the top-left of the image and (1000,1000) the "
+    "bottom-right. Answer only with four lines of `x,y`: top-left, top-right, bottom-right, bottom-left."
+)
+
+
+def ask_quad(url: str, img_bgr: np.ndarray, timeout: float = 300.0) -> np.ndarray | None:
+    """The sheet's quad from a vision model, in image coordinates.
+
+    Measured on `IMG_20251229_122443`: the model put the bottom edge at y≈867 of a 1000-grid
+    (780 px of 900), which is where SAM's mask also stops and where the page actually ends —
+    the learned mask reaches 893. Four corner points is the question shape these models answer
+    reliably; dense points are not.
+    """
+    import base64
+    import re
+
+    import requests
+
+    h, w = img_bgr.shape[:2]
+    s = 1000 / max(h, w)
+    small = cv2.resize(img_bgr, (int(w * s), int(h * s))) if s < 1 else img_bgr
+    ok, buf = cv2.imencode(".jpg", small)
+    if not ok:
+        return None
+    body = {
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": _VLM_QUAD_QUESTION},
+            {"type": "image_url",
+             "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(buf).decode()}},
+        ]}],
+        "max_tokens": 1200, "temperature": 0.0,
+    }
+    try:
+        r = requests.post(url.rstrip("/") + "/v1/chat/completions", json=body, timeout=timeout)
+        r.raise_for_status()
+        msg = r.json()["choices"][0]["message"]
+        text = msg.get("content") or msg.get("reasoning_content") or ""
+    except Exception:  # noqa: BLE001
+        return None
+    pts = [(int(a), int(b)) for a, b in re.findall(r"(\d{1,4})\s*,\s*(\d{1,4})", text)]
+    pts = [(x, y) for x, y in pts if 0 <= x <= 1000 and 0 <= y <= 1000][:4]
+    if len(pts) < 4:
+        return None
+    return np.array([[x / 1000.0 * w, y / 1000.0 * h] for x, y in pts], np.float32)

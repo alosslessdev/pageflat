@@ -564,3 +564,19 @@ That is now four attempts at "where is the paper" — mask boundary, brightness 
 and frame-border paper-ness — all defeated by the same single fact about this material. A learned
 segmenter (SAM 2 or a document-specific model), or a vision model per page, is the only route left
 that has not already failed here.
+
+### The vision quad works with a strong model and not with the local one
+
+`segment.ask_quad` asks for four corners on a 0-1000 grid. Two trials on
+`IMG_20251229_122443`, whose bottom edge is at 780 of 900:
+
+| model | result |
+|---|---|
+| DeepSeek-class subagent | `(180,98) (848,93) (879,869) (214,863)` — bottom at 869 of 1000 ≈ **782 px**, matching SAM and the paper |
+| local Qwen3.5-4B | **nothing** — no four points within its budget |
+
+So the route is viable and costs ~40 s per page with a strong endpoint, and it is not viable locally.
+That is the third independent measurement pointing the same way (orientation 2/3 vs 3/3, sheet quad
+nothing vs exact, and 15 % of pages needing it at all), and it settles the architecture question:
+**cheap classical rules for the 85 % of pages that carry text, a strong vision model for the rest** —
+with the local model reserved for tasks whose output is a single label.
