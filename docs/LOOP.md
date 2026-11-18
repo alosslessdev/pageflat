@@ -676,3 +676,31 @@ them: `225419` went from −3.7° to **+8.6°**, because the first rotation chan
 one measures. That is the third sign/order trap in this session — after the shear applied away from
 its fit and the tilt rotation applied to the wrong reference — and the rule that keeps emerging is to
 use one authority, measured on the page as it will be written.
+
+## The current-HEAD benchmark (it8) and what it says about the last two fixes
+
+| metric | it7 (best measured) | it8 (narrow rule + squareness deskew) |
+|---|---|---|
+| accepted | **100/100** | 91/100 |
+| pages | 129 | 115 |
+| bow median | 0.04 % | 0.05 % |
+| bow above 3 % | 0 | 0 |
+| **page squareness median** | **0.42°** | 0.54° |
+| **squareness above 1°** | **11** | 14 |
+| background band | 43 | **37** |
+| cut lines | 39 | **31** |
+| misoriented | 7 | 9 |
+
+The squareness deskew that improved its own six pages made the whole benchmark **worse on
+squareness** and **cost nine pages** to the quality gate — rotating a page crops its corners and
+the content checks then reject it. Reverted; `skew_angle` is back.
+
+The cut and band improvements (39 -> 31, 43 -> 37) come from the split guard and the edge trim,
+which were already in it7's lineage, and the smaller page set makes those two only roughly
+comparable.
+
+**So the answer to "is the corpus fixed" is: no, and the best configuration measured remains
+it7's.** Flattening is met (0.04 % bow, none above 3 %); squareness sits at 0.42° median with 11
+pages above 1° and no fix that survives the benchmark; cut content is 31-39 depending on run; and
+the mask still keeps pale furniture. Five fixes have now been rejected by the benchmark, each with
+its numbers.

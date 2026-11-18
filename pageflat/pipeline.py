@@ -304,17 +304,10 @@ def _deskew_final(page: np.ndarray, max_angle: float = 12.0) -> tuple[np.ndarray
     if max(h, w) > 1200:
         s_ = 1200 / float(max(h, w))
         small = cv2.resize(page, (int(w * s_), int(h * s_)), interpolation=cv2.INTER_AREA)
-    # Square the page by its own text lines, and use `skew_angle` only when there are
-    # no lines to measure. Doing both compounds them: measured on the six worst pages
-    # the squareness rotation alone takes -3.69, -1.65, +1.52, +1.50, -1.24, +1.24
-    # degrees to under 0.4 in every case, while deskew followed by squareness pushed
-    # 225419 from -3.7 to +8.6.
-    sq = orientation.squareness(small)
-    if sq is not None and abs(sq) >= 0.3:
-        M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), sq, 1.0)
-        page = cv2.warpAffine(page, M, (w, h), flags=cv2.INTER_CUBIC,
-                              borderMode=cv2.BORDER_REPLICATE)
-        return page, float(sq)
+    # `skew_angle`, not the text-line angle. The text-line version measured better on
+    # its own six worst pages (3.69 -> 1.11 deg and five others), but on the whole
+    # benchmark it made squareness *worse* (median 0.42 -> 0.54, pages above 1 deg
+    # 11 -> 14) and cost nine pages to the quality gate. Reverted.
     out, angle = orientation.deskew(small, max_angle=max_angle)
     if abs(float(angle)) < 0.3:
         return page, float(angle)
