@@ -321,6 +321,16 @@ def _orient_final(page: np.ndarray, detector) -> tuple[np.ndarray, int]:
         small = cv2.resize(page, (int(w * s_), int(h * s_)), interpolation=cv2.INTER_LINEAR)
     angle = orientation.detect_rotation(small)
     if angle in _ROTATE:
+        # A page with no text grid is a flyer, and a flyer's mirrored advertising
+        # banner "reads" better upside down: three pages in it7 were flagged while
+        # being perfectly upright. Rotate only when there is a text grid to justify
+        # it and the fast classifier agrees.
+        from .charlines import detect_lines
+
+        grid = [l for l in detect_lines(small) if len(l.boxes) >= 6]
+        alt = orientation.detect_rotation_fast(page, device=str(detector.device))
+        if len(grid) < 5 or alt != angle:
+            return page, 0
         # A detector that answers the same angle for a page and for that page
         # rotated by it is contradicting itself — three pages do exactly this. Ask
         # a different model rather than trusting an answer that cannot be acted on.

@@ -379,3 +379,20 @@ upright page worse. The robust rule is narrower than what is implemented — rot
 page has a text grid *and* the fast classifier agrees with the OCR score — and everything else
 should be left alone. That is the next change to make, and it needs a hand-labelled orientation
 sample to measure against, because the automatic verdict is not trustworthy.
+
+### The narrow rule, shipped, with its cost stated
+
+Orientation now rotates only when **both** hold: the page has a text grid (>= 5 detected lines)
+and docTR's fast classifier agrees with the OCR score. Rationale, measured above: a flyer with a
+mirrored banner wins the OCR vote while being upright.
+
+Results on the nine hard pages: **7 upright, 1 correctly left alone, 1 known miss.**
+
+* correctly left alone — `IMG_20260506_224606`: the metric says 180, the page is upright, and its
+  mirrored `DIAaDIA BLACKBERRY` banner is the reason.
+* **known miss** — `IMG_20260506_224356`: genuinely upside down (the `Canon` wordmark is inverted
+  in the render) and now left as it is, because it has fewer than five detected lines.
+
+So the rule trades one real miss for three prevented false rotations. That is the right way round
+— rotating an upright page destroys it, while leaving an upside-down one is visible and fixable —
+but it is a trade, not a fix, and it cannot be closed without a hand-labelled orientation sample.
