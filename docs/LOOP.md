@@ -740,3 +740,24 @@ that reported "100/100 accepted" were the runs where the bug did not fire. **The
 and page sets differ between runs for a reason that has nothing to do with the fixes being
 compared** — which is exactly the kind of confound this loop exists to catch, found only because the
 runs stopped agreeing.
+
+### The eight lost pages were a bug, and the record has to be corrected
+
+`KeyError(0)`, not contention and not the fixes: the narrow orientation rule set `angle = 0` when a
+page had no text grid, and then indexed `_ROTATE[angle]`, which only has 90/180/270. The per-page
+handler turned that into an `error` row, so **every page without a text grid disappeared** — eight or
+nine per hundred sources, in every run since that rule was added. Returning early instead fixes it,
+and the eight sources that failed in it9 now give **8 of 8 accepted**.
+
+**What has to be corrected:**
+
+| claim I made | what was actually true |
+|---|---|
+| "it8's squareness rotation costs nine pages" | the squareness rotation did not drop pages; the orientation rule did |
+| "it9's padded canvas still costs eight pages" | same bug; those eight had nothing to do with the canvas |
+| "the runs are not the same page set, so band/cut are not comparable" | true, but the cause was this bug, not the fixes being compared |
+
+The geometric findings survive — squareness 0.54 → 0.45 and pages above 1° 14 → 10 were measured on
+the pages that *did* survive, and the fix did not touch them — but **the acceptance column means
+nothing until the benchmark is re-run with the bug fixed**, which is the next thing to do rather
+than another rule change.
