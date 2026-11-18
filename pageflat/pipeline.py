@@ -386,7 +386,11 @@ def _orient_final(page: np.ndarray, detector, orient_url: str = "") -> tuple[np.
         grid = [l for l in detect_lines(small) if len(l.boxes) >= 6]
         alt = orientation.detect_rotation_fast(page, device=str(detector.device))
         if len(grid) < 5 or alt != angle:
-            angle = 0
+            # No text grid, or the two detectors disagree: leave the page alone.
+            # Returning here rather than setting `angle = 0` is what fixes the
+            # KeyError(0) that silently dropped every page of this class — eight or
+            # nine per hundred sources, in every run.
+            return page, 0
         # A detector that answers the same angle for a page and for that page
         # rotated by it is contradicting itself — three pages do exactly this. Ask
         # a different model rather than trusting an answer that cannot be acted on.
