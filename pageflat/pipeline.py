@@ -155,6 +155,7 @@ def rectified_sheets(img: np.ndarray, detector, settings: Settings
     mask = detector.page_mask(small)
     if not mask.any():
         return []
+    alt_parts = None
     sam_mask = None
     if settings.use_sam and getattr(detector, "sam", None) is not None:
         # SAM follows the sheet where the learned model follows colour, and a pale
@@ -172,7 +173,12 @@ def rectified_sheets(img: np.ndarray, detector, settings: Settings
             # and a page may never lose a line to either.
             both = ((mask >= 0.5) & (sam_mask >= 0.5)).astype(np.float32)
             if float(both.mean()) > 0.03:
-                mask, _grow = extend_to_lines(small, both)
+                # keep it as an *alternative*, not a replacement: which mask is right
+                # is a per-page question, settled below by how many text lines each
+                # one cuts (SAM alone clipped five lines on IMG_20251229_122456 where
+                # the learned mask clipped none).
+                grown, _grow = extend_to_lines(small, both)
+                alt_parts = [(grown >= 0.5).astype(np.uint8)]
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     if settings.split_sheets:
         kind = page_kind(small, settings) if settings.content_route else "unknown"
@@ -180,6 +186,30 @@ def rectified_sheets(img: np.ndarray, detector, settings: Settings
                                         kind=kind)
     else:
         parts = [(mask >= 0.5).astype(np.uint8)]
+    if alt_parts:
+        # Warp both candidates and keep the one that cuts fewer text lines.
+        def _cuts(part):
+            from .charlines import detect_lines
+
+            q = geom.mask_to_quad(part)
+            if q is None or not part.any():
+                return None
+            w = perspective.warp_sheet(img, perspective.expand_quad(
+                (geom.refine_quad(gray, q.points, search_frac=0.02) / scale).astype(np.float32),
+                settings.quad_margin, img.shape), max_side=1400)
+            n = 0
+            for line in detect_lines(w):
+                if len(line.boxes) < 3:
+                    continue
+                if (line.left <= 6 or line.right >= w.shape[1] - 6
+                        or min(b[1] for b in line.boxes) <= 6
+                        or max(b[1] + b[3] for b in line.boxes) >= w.shape[0] - 6):
+                    n += 1
+            return n
+        a = _cuts(parts[0]) if len(parts) == 1 else None
+        b = _cuts(alt_parts[0])
+        if a is not None and b is not None and b < a:
+            parts = alt_parts
     out = []
     for part in parts:
         quad = geom.mask_to_quad(part)

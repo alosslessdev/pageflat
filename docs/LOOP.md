@@ -291,3 +291,25 @@ same as "better".
 What the numbers do establish: the bottom edge on `122443` really is at 780 of 900 (SAM and an
 independent vision model agree), so the learned mask's 893 is wrong — the remaining work is
 per-page arbitration by measured outcome (cut lines and acceptance), not another fixed rule.
+
+### Per-page arbitration beats both fixed rules
+
+Choosing the mask by measured outcome — warp both candidates, count the text lines each one
+cuts, keep the better — on the same five sources:
+
+| page | default mask | SAM alone | intersection | **arbitrated** |
+|---|---|---|---|---|
+| `122443` | 1 | accepted | rejected | **0** |
+| `122456` | 0 | 5 | 0 | **0** |
+| `122507_p1` | — | 0 | 0 | **0** |
+| `122507_p2` | — | 4 | 4 | 4 |
+| `122517_p1` | 0 | 0 | 0 | **0** |
+| `122517_p2` | 2 | 0 | 0 | **0** |
+
+Five of six outputs cut nothing, and the page that motivated the whole exercise goes from one
+cut line and a strip of table to zero cuts. `122504` reported `error` in the threaded batch and
+runs clean alone, which is the concurrency/OOM pattern seen before rather than a logic fault.
+
+Still behind `--sam`: it costs one extra model pass per page, and the arbitration doubles the
+warp for those pages. A full benchmark run with it is the next validation, and the number to
+beat is the default's 37 cut pages.
