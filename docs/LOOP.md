@@ -467,3 +467,26 @@ which is a miss rather than damage — the right way to be wrong.
 **The escalation is now obvious and costed:** a vision call per page decides what OCR cannot,
 at ~40 s each. For the benchmark that is fine; for 5,737 pages it is ~63 hours of model time, so
 it belongs behind a flag, applied to the pages the cheap rule refuses.
+
+### The low-text class is 15 % of the benchmark, and a vision model gets it right
+
+`max OCR score < 500` over all four rotations — the pages where the vote is noise — is **9 of 60
+pages sampled (15 %)**, so roughly 19 of a 129-page benchmark. The earned-rotation rule leaves all
+of them untouched, which is a miss whenever they are actually rotated.
+
+Three of them were judged by a vision model and checked by eye where possible:
+
+| page | vision model | checked | pipeline (earned rule) |
+|---|---|---|---|
+| `224351` (EPSON printer flyer) | `rotate_180` 0.97 | **confirmed**: the wordmark, every caption and every price reads inverted | leaves it — **miss** |
+| `224512` (Conair flyer) | `rotate_cw_90` 0.96 | **confirmed** by eye, top on the left | leaves it — **miss** |
+| `224602` (newspaper page) | `upright` 0.96 | consistent with its readable headings | leaves it — correct |
+
+So for this class the ranking is: **vision model ≫ earned OCR scores ≫ raw OCR vote**. Two of three
+were pages the pipeline would ship rotated.
+
+**The routing that follows:** decide orientation with OCR where the score is earned (85 % of pages,
+free), and hand the rest to a vision model. One 4-way question per page is enough — no coordinates,
+no point lists — which is the form of question the local models failed at earlier and the reason the
+failure did not generalise: asking for *one of four labels* is a classification, and asking for
+twelve coordinates is not.
