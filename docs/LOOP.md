@@ -440,3 +440,30 @@ disagreement is visible rather than silent.
 What the table *does* establish: on four of six pages every rotation scores near zero except one,
 which means those pages carry almost no readable text either way and the vote among 0/90/180/270
 is decided by a handful of OCR fragments. That is not a measurement to tune against.
+
+### Orientation: the vision model is right where OCR is blind
+
+The page that broke every automatic attempt is `IMG_20260506_224512`, a Conair flyer whose text
+is product labels and prices. Its four-rotation OCR scores are **0:0, 90:0, 180:181, 270:0** — a
+vote cast by a handful of fragments — so:
+
+| judge | verdict | correct? |
+|---|---|---|
+| OCR-scored detector | 180 | **no** |
+| my eye at 340 px, then at 900 px | upright | **no** |
+| **you** | top on the left (rotate 90 clockwise) | **yes** |
+| **a vision model** | `rotate_cw_90`, confidence 0.96 | **yes** |
+
+The model's evidence: *"the `infiniti pro by CONAIR` wordmark runs horizontally across the top with
+its letters right-side up, price tags read left-to-right, the model's face and `Curl Secret`
+headline sit at the top"* — it rotated the page mentally and read it, which is exactly what OCR
+scoring cannot do when the page has almost no prose.
+
+**What shipped instead:** rotation must now be *earned* — the winning rotation needs an absolute
+score of 500 and twice the upright score. That fixes the three mirrored-banner pages (3892 vs 394,
+867 vs 253, 1387 vs 399 all now stay upright, and they are upright) and leaves `224512` alone,
+which is a miss rather than damage — the right way to be wrong.
+
+**The escalation is now obvious and costed:** a vision call per page decides what OCR cannot,
+at ~40 s each. For the benchmark that is fine; for 5,737 pages it is ~63 hours of model time, so
+it belongs behind a flag, applied to the pages the cheap rule refuses.

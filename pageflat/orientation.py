@@ -96,18 +96,28 @@ def detect_rotation(img_bgr: np.ndarray) -> int:
     characters" and callers silently keep the wrong rotation), so the four
     candidate rotations are scored by OCR confidence and the best wins.
     """
-    osd = _osd_rotation(img_bgr)
-    if osd is not None:
-        return osd
-
+    # OSD is a *fallback*, not a preference. It was taking precedence and calling
+    # upright pages 180 on graphic paper: on IMG_20260506_224123, rendered and read
+    # at 900 px, the page is plainly upright with its headline across the top, while
+    # OSD said 180. The four-rotation OCR comparison gets that page right (2953
+    # units of text upright against 190 rotated), so the scores decide whenever they
+    # have anything to say.
     variants = {0: img_bgr,
                 90: cv2.rotate(img_bgr, cv2.ROTATE_90_CLOCKWISE),
                 180: cv2.rotate(img_bgr, cv2.ROTATE_180),
                 270: cv2.rotate(img_bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)}
     scores = {a: _ocr_score(v) for a, v in variants.items()}
     best = max(scores, key=scores.get)
-    if scores[best] <= 0:
+    # A rotation has to be earned: the page shown at 900 px as a Conair flyer is
+    # plainly upright, yet its best rotation scored 181 against 0 upright -- a vote
+    # cast by a handful of fragments. Requiring an absolute floor and a margin over
+    # the upright score keeps that page as it is; pages with real text clear both
+    # easily (2953 upright, 1845 upright, 1464 against 173).
+    if best != 0 and (scores[best] < 500 or scores[best] < 2.0 * max(1, scores[0])):
         return 0
+    if scores[best] <= 0:
+        osd = _osd_rotation(img_bgr)
+        return osd if osd is not None else 0
     return best
 
 
