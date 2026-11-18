@@ -313,3 +313,26 @@ runs clean alone, which is the concurrency/OOM pattern seen before rather than a
 Still behind `--sam`: it costs one extra model pass per page, and the arbitration doubles the
 warp for those pages. A full benchmark run with it is the next validation, and the number to
 beat is the default's 37 cut pages.
+
+### The SAM mask does not generalise: a full run says no
+
+The five-page sample said yes; the whole benchmark says no. Same 100 sources, `--sam` with the
+per-page arbitration:
+
+| run | accepted | pages | bow med | tilt med | band | **cut lines** | misoriented |
+|---|---|---|---|---|---|---|---|
+| it4 (default mask) | 100/100 | 129 | 0.04 % | 1.15° | 43 | **37** | 7 |
+| **it5 (`--sam` + arbitration)** | **95/100** | 120 | 0.04 % | 1.92° | 38 | **52** | **12** |
+
+Worse on everything that matters: five pages rejected that the default accepts, fifteen more
+pages with cut lines, five more misoriented, and the tilt worse by two thirds. The smaller page
+set also means the two runs are not scoring the same pages, so even the band improvement is not
+comparable.
+
+Why the sample lied: on those five sources SAM's boundary was the right one. Across the corpus
+SAM under-segments graphic pages, and the line-growth guard cannot repair that because
+`charlines` has nothing to detect on a flyer — the same reason 28 pages have no text grid at all.
+
+**Not adopted.** `--sam` stays opt-in and off; the default mask (it4) is the better configuration
+on every metric. This is the third fix in this loop that looked right on its motivating example
+and failed at scale — the benchmark, not the example, is the judge.
