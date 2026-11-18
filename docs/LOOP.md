@@ -722,3 +722,21 @@ The likely cause is the crop back to the sheet inside `_rotate_expand`: `print_r
 detector, and on a page whose print stops short of the paper edge it can crop into the margin —
 which is the same failure mode as `crop_to_content`, one level down. The next experiment is to keep
 the rotated canvas whole (no crop back) and let the existing edge trim do the removing.
+
+## Every benchmark run silently dropped eight pages
+
+Chasing the it9 errors produced two findings, and the second is the uncomfortable one.
+
+1. **A real bug in the CPU path**: `res.pick` was built by indexing `confs` for *every* candidate,
+   while `confs` only holds the candidates that survived the ink filter — `KeyError('uvdoc')`
+   whenever a candidate was filtered out. Fixed.
+2. **The same class of failure in the GPU path**, reported as `KeyError(0)` and caught by the
+   per-page `except`, so the page is counted as `error` and disappears from the results. My attempt
+   to capture its traceback did not surface it, and it is still there.
+
+**What that means for every number in this document:** the 8-9 "errors" per hundred sources in the
+`--gpu-path` runs were never random. Each was a page silently dropped by a bug, and the metric runs
+that reported "100/100 accepted" were the runs where the bug did not fire. **The acceptance counts
+and page sets differ between runs for a reason that has nothing to do with the fixes being
+compared** — which is exactly the kind of confound this loop exists to catch, found only because the
+runs stopped agreeing.

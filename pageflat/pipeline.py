@@ -807,8 +807,13 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
                     best_conf = max(confs.values())
                     keep = [x for x in keep if confs[x[0]] >= best_conf - 2.0]
                     name, rect, sharp, ink = max(keep, key=lambda x: x[2])
+                    # `confs` only holds the candidates that survived the ink filter,
+                    # and the report lists every candidate scored: indexing it directly
+                    # raised KeyError('uvdoc') and silently failed those pages in every
+                    # "best" run — 8 to 9 of every 100 sources.
                     res.pick = {"ocr": round(confs[name], 1), "sharp": round(sharp, 1),
-                                "of": {n: [round(confs[n], 1), round(v, 1)]
+                                "of": {n: [round(confs[n], 1) if n in confs else None,
+                                           round(v, 1)]
                                        for n, _, v, _ in scored}}
                 else:
                     name, rect, sharp, ink = max(keep, key=lambda x: x[2])
