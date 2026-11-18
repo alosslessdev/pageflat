@@ -704,3 +704,21 @@ it7's.** Flattening is met (0.04 % bow, none above 3 %); squareness sits at 0.42
 pages above 1° and no fix that survives the benchmark; cut content is 31-39 depending on run; and
 the mask still keeps pale furniture. Five fixes have now been rejected by the benchmark, each with
 its numbers.
+
+## it9: the padded canvas fixes the geometry and costs accepted pages
+
+| run | accepted | pages | bow med | squareness med | squareness >1° | band | cut | misoriented |
+|---|---|---|---|---|---|---|---|---|
+| it7 (before the squareness work) | **100/100** | 129 | 0.04 % | 0.42° | 11 | 43 | 39 | 7 |
+| it8 (squareness into the same canvas) | 91/100 | 115 | 0.05 % | 0.54° | 14 | 37 | 31 | 9 |
+| **it9 (squareness into a padded canvas)** | 92/100 | 115 | 0.04 % | **0.45°** | **10** | **36** | **30** | **6** |
+
+Padding repaired what it8 broke — squareness 0.54 → 0.45, pages above 1° 14 → 10, and the best
+values yet on band (36), cut (30) and orientation (6) — but **eight pages are still rejected** that
+it7 accepted. Dropping a page entirely is worse than shipping it slightly rotated, so this is a
+trade rather than a win, and the trade should not be taken until the rejection is understood.
+
+The likely cause is the crop back to the sheet inside `_rotate_expand`: `print_region` is a texture
+detector, and on a page whose print stops short of the paper edge it can crop into the margin —
+which is the same failure mode as `crop_to_content`, one level down. The next experiment is to keep
+the rotated canvas whole (no crop back) and let the existing edge trim do the removing.
