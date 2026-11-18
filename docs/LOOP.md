@@ -651,3 +651,28 @@ why the metric was built rather than the claim believed.
 
 The squareness number is worth keeping as a target in its own right: it is the defect a reader sees
 first, and eleven pages above one degree is a concrete, fixable set.
+
+### Squareness now drives the deskew, and it works
+
+The rotation applied at save time was `skew_angle`, which reads 0.0 on pages that are visibly a
+degree or two askew. It is replaced by the text-line angle, with `skew_angle` kept only as the
+fallback for pages with no lines to measure.
+
+Measured on the six worst pages of the 129-page run:
+
+| page | before | after |
+|---|---|---|
+| `225419_p1` | −3.69° | **+1.11°** |
+| `225556_p2` | −1.65° | **−0.03°** |
+| `202806_p2` | +1.52° | **+0.97°** |
+| `124421` | +1.50° | **+0.30°** |
+| `202806_p1` | +0.42° | **−0.01°** |
+| `225419_p2` | −0.78° | 1.44° (slightly worse) |
+
+Five of six improved, four of them to under 1.1°.
+
+**And the order matters, twice over.** Applying `deskew` *then* the squareness rotation compounds
+them: `225419` went from −3.7° to **+8.6°**, because the first rotation changes the lines the second
+one measures. That is the third sign/order trap in this session — after the shear applied away from
+its fit and the tilt rotation applied to the wrong reference — and the rule that keeps emerging is to
+use one authority, measured on the page as it will be written.

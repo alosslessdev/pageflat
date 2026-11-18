@@ -239,3 +239,30 @@ def ask_vision(url: str, img_bgr: np.ndarray, timeout: float = 300.0) -> int | N
         if ch in _ORIENT_ANSWER:
             return _ORIENT_ANSWER[ch]
     return None
+
+
+def squareness(img_bgr: np.ndarray, min_chars: int = 6) -> float | None:
+    """Angle of the text lines in degrees: is the page square in the frame.
+
+    Different from the bow, which asks whether a line is straight. A page can have
+    perfectly straight lines and still sit a degree or two askew, which is what a
+    reader notices first and what a line-straightness measure cannot see.
+    """
+    from .charlines import detect_lines
+
+    h, w = img_bgr.shape[:2]
+    slopes = []
+    for line in detect_lines(img_bgr):
+        if len(line.boxes) < min_chars:
+            continue
+        x0 = min(b[0] for b in line.boxes)
+        x1 = max(b[0] + b[2] for b in line.boxes)
+        if x1 - x0 < 0.1 * w:
+            continue
+        mid = (x0 + x1) / 2.0
+        y0 = np.mean([b[1] + b[3] for b in line.boxes if b[0] < mid])
+        y1 = np.mean([b[1] + b[3] for b in line.boxes if b[0] >= mid])
+        slopes.append(float(np.degrees(np.arctan2(y1 - y0, (x1 - x0) / 2.0))))
+    if len(slopes) < 3:
+        return None
+    return float(np.median(slopes))
