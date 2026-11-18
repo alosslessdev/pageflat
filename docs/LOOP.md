@@ -336,3 +336,24 @@ SAM under-segments graphic pages, and the line-growth guard cannot repair that b
 **Not adopted.** `--sam` stays opt-in and off; the default mask (it4) is the better configuration
 on every metric. This is the third fix in this loop that looked right on its motivating example
 and failed at scale — the benchmark, not the example, is the judge.
+
+### Two orientation passes are worse than one: reverted
+
+it6 ran the benchmark with the orientation check both on the rectified sheet and at save time.
+It measured **13 of 128 misoriented** against it4's **7 of 129** with the save-time pass alone —
+the two passes rotate some pages twice, because the shear, the trim and the deskew change the
+pixels the detector reads in between. The early pass is removed again; the save-time pass is the
+single authority, and on the nine hard pages (the four it had fixed, the three contradictions,
+and two halves) it gives **0/9 misoriented**.
+
+The deskew-at-save fix (`90ed125`) is kept: it is a different correction (fine angle, not 90°
+multiples) and it was measured on its own metric, 9.5° → 0.4°.
+
+**Current configuration, all measured**: it4's numbers are the reference (cut 37, misoriented 7,
+band 43, bow 0.04 %), with skew now corrected on the finished page. The last full run in this
+session, it6, measured a configuration that no longer exists.
+
+The lesson repeats what the loop already showed three times: a change that fixes its sample can
+lose at scale, and the only way to know is the 100-page run — which is also why the run has to be
+affordable, and why the arbitration path (one extra model pass and a second warp per page) was
+not adopted for a two-point gain that did not appear.

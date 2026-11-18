@@ -578,6 +578,9 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                     # orientation on the page as written: the GPU path decided on
                     # the pre-warp sheet and left pages sideways while reporting 0
                     if settings.auto_orient:
+                        # One pass, on the page as written. Two passes (an early one
+                        # on the rectified sheet plus this) measured worse: 13 of 128
+                        # misoriented in it6 against 7 with this alone.
                         if settings.fix_tilt:
                             page = _tilt_final(page)
                         page, _ang = _orient_final(page, detector)
@@ -744,10 +747,6 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
 
             if settings.deskew:
                 rect, _ = orientation.deskew(rect, max_angle=10.0)
-            if settings.auto_orient:
-                rect, _early = _orient_final(rect, detector)
-                if _early in _ROTATE:
-                    res.rotation = _early
             if settings.straighten_edges:
                 from .edges import straighten_edge
 
