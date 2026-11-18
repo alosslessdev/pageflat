@@ -268,3 +268,26 @@ The six failures, for the record: `printed_mask` (full frame), dark ink (catches
 row-mean brightness step (invisible: 140-153 across the edge), strongest gradient (lands on
 content), outermost gradient (lands on page borders), per-side minimum of the two masks (cuts
 115 px off the sheet).
+
+### The SAM mask fixes its case but is not yet a general win
+
+Measured on five benchmark sources, three configurations (band and cut-lines per output):
+
+| page | docTR mask (default) | SAM alone | docTR ∩ SAM + lines |
+|---|---|---|---|
+| `122456` | 0.21 / **0** | 0.28 / 5 | 0.31 / **0** |
+| `122504` | — | 0.27 / 1 | 0.18 / 5 |
+| `122507_p1` | — | 0.03 / 0 | 0.03 / 0 |
+| `122507_p2` | — | 0.14 / 4 | 0.14 / 4 |
+| `122517_p1` | 0.37 / 0 | 0.34 / 0 | 0.34 / 0 |
+| `122517_p2` | 0.40 / 2 | 0.37 / 0 | 0.37 / 0 |
+| `122443` | 0.20 / 1 | accepted | **rejected by the quality gate** |
+
+So each rule trades one failure for another: SAM alone clips text on `122456`, the
+intersection cuts too much on `122504` and rejects `122443` outright. The mask is behind
+`--sam` and **off by default**, because "better on the page that motivated it" is not the
+same as "better".
+
+What the numbers do establish: the bottom edge on `122443` really is at 780 of 900 (SAM and an
+independent vision model agree), so the learned mask's 893 is wrong — the remaining work is
+per-page arbitration by measured outcome (cut lines and acceptance), not another fixed rule.

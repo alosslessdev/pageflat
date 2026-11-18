@@ -155,17 +155,24 @@ def rectified_sheets(img: np.ndarray, detector, settings: Settings
     mask = detector.page_mask(small)
     if not mask.any():
         return []
+    sam_mask = None
     if settings.use_sam and getattr(detector, "sam", None) is not None:
         # SAM follows the sheet where the learned model follows colour, and a pale
         # table is paper-coloured. Measured on IMG_20251229_122443: docTR's mask
         # reaches y=893 of 900, SAM's stops at 780 where the sheet actually ends
         # (an independent vision model put the same edge at 867 of a 1000-grid).
+        # It is not a free win though — a tighter mask can clip text — so the two
+        # candidates are arbitrated further down by how many lines each one cuts.
         from .segment import extend_to_lines
 
-        refined = detector.sam.sheet_mask(small, (mask >= 0.5).astype(np.uint8) * 255)
-        if refined is not None and float((refined >= 0.5).mean()) > 0.05:
-            refined, _grow = extend_to_lines(small, refined)
-            mask = refined
+        sam_mask = detector.sam.sheet_mask(small, (mask >= 0.5).astype(np.uint8) * 255)
+        if sam_mask is not None and float((sam_mask >= 0.5).mean()) > 0.05:
+            # only what both witnesses call sheet, then grown back over the text:
+            # neither the learned model's over-reach nor SAM's under-reach survives,
+            # and a page may never lose a line to either.
+            both = ((mask >= 0.5) & (sam_mask >= 0.5)).astype(np.float32)
+            if float(both.mean()) > 0.03:
+                mask, _grow = extend_to_lines(small, both)
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     if settings.split_sheets:
         kind = page_kind(small, settings) if settings.content_route else "unknown"
