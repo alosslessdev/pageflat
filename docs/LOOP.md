@@ -490,3 +490,21 @@ free), and hand the rest to a vision model. One 4-way question per page is enoug
 no point lists — which is the form of question the local models failed at earlier and the reason the
 failure did not generalise: asking for *one of four labels* is a classification, and asking for
 twelve coordinates is not.
+
+### Which vision model is enough: local 4B is not
+
+The same four-way question, asked of two models, checked against the pages:
+
+| page | truth (by eye) | local Qwen3.5-4B | a DeepSeek-class subagent |
+|---|---|---|---|
+| `224351` EPSON flyer | 180 | **C (180)** ✓ | **rotate_180** ✓ |
+| `224512` Conair flyer | 90 clockwise | not asked | **rotate_cw_90** ✓ |
+| `224505` Black+Decker flyer | 90 clockwise (BLACK+DECKER reads bottom-to-top on the left) | **D (90 counter-clockwise)** ✗ | **rotate_cw_90** ✓ |
+| `224602` newspaper page | upright | **A (upright)** ✓ | **upright** ✓ |
+
+Local 4B: **2 of 3**. Subagent: **3 of 3**. The local model's failure is the interesting one — not a
+refusal, a confident wrong direction — so for this routing the model has to be the stronger one,
+and that is ~40 s per page rather than a local call.
+
+Recorded because the cost depends on it: 15 % of pages × 5,737 is ~860 calls. At 40 s that is ~10 h
+of model time; at a local 4B's ~8 s it would be ~2 h, but 2 of 3 is not good enough to ship.
