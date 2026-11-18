@@ -155,6 +155,17 @@ def rectified_sheets(img: np.ndarray, detector, settings: Settings
     mask = detector.page_mask(small)
     if not mask.any():
         return []
+    if settings.use_sam and getattr(detector, "sam", None) is not None:
+        # SAM follows the sheet where the learned model follows colour, and a pale
+        # table is paper-coloured. Measured on IMG_20251229_122443: docTR's mask
+        # reaches y=893 of 900, SAM's stops at 780 where the sheet actually ends
+        # (an independent vision model put the same edge at 867 of a 1000-grid).
+        from .segment import extend_to_lines
+
+        refined = detector.sam.sheet_mask(small, (mask >= 0.5).astype(np.uint8) * 255)
+        if refined is not None and float((refined >= 0.5).mean()) > 0.05:
+            refined, _grow = extend_to_lines(small, refined)
+            mask = refined
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     if settings.split_sheets:
         kind = page_kind(small, settings) if settings.content_route else "unknown"

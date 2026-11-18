@@ -241,3 +241,30 @@ ends where the ink ends plus a margin, and the mask does not.
 **The fix belongs in segmentation, not in cropping**: bound the mask where the print stops.
 A cheap, checkable version is to find the strongest horizontal edge below the last ink row —
 the paper-to-table boundary — and use that as the mask's bottom.
+
+### The mask fix that works: SAM, guarded by the text lines
+
+Six single-signal rules were tried and all failed on `IMG_20251229_122443` — the page whose
+bottom keeps a strip of table. What works is asking a second segmenter:
+
+| witness | bottom edge (frame 900 px) |
+|---|---|
+| learned page mask (docTR) | **893** — past the sheet |
+| SAM, grid-prompted | **780** |
+| an independent vision model, 0-1000 grid | **867** → 780 in pixels |
+| print ends | ~790 |
+
+SAM and a vision model agree; the learned mask does not. And SAM's weakness is the opposite
+one — it can be *tighter than the page* (its left boundary is x=127 against the sheet's x=12),
+so the mask is grown until no detected text line is cut by it (`segment.extend_to_lines`).
+
+Wired behind `--sam`. On the page that motivated it the output no longer shows table at the
+bottom: what reaches the bottom edge is the magazine's own yellow band. Note that the
+`_paper_like` band metric now reads *worse* (0.05 non-paper against 0.00) because a pale table
+counts as paper and the yellow band does not — the metric cannot judge this fix, which is why
+the mask extents and the vision model are the evidence.
+
+The six failures, for the record: `printed_mask` (full frame), dark ink (catches the shadow),
+row-mean brightness step (invisible: 140-153 across the edge), strongest gradient (lands on
+content), outermost gradient (lands on page borders), per-side minimum of the two masks (cuts
+115 px off the sheet).
