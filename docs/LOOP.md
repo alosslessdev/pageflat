@@ -374,6 +374,23 @@ The pages are upright. The OCR-scored detector votes for a rotation because the 
 a bad metric and a bad corrector on graphic pages. That explains the run-to-run drift: every
 stage that changes the pixels changes which side of the vote wins.
 
+**Second check, and it corrects the first one.** Three of the flagged pages were rendered and
+looked at, then three more:
+
+| page | what the eye says |
+|---|---|
+| `224512`, `224606` | upright; a mirrored banner explains the vote |
+| `224643` | upright and readable |
+| `202334` | text runs vertically — **genuinely rotated** |
+| `224123` | headline "Los mensajes ocultos de los eclipses de Sol" runs vertically — **genuinely rotated** |
+| `224218` | a flyer with mirrored product rows — mixed |
+
+So the flag is **not** mostly false: two of six are plainly misoriented and would be fixed by a
+rotation. The honest statement is that the automatic verdict mixes real misses with mirrored-design
+false positives at an unknown ratio, and two spot checks of three pages each produced opposite
+impressions — which is the strongest possible argument that the next step must be a hand-labelled
+sample, not another rule change.
+
 **Consequence:** the orientation count cannot be tuned against, and rotating on it can make an
 upright page worse. The robust rule is narrower than what is implemented — rotate only when the
 page has a text grid *and* the fast classifier agrees with the OCR score — and everything else
