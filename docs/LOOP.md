@@ -627,3 +627,27 @@ flatness at 380 px per page is not yet a reliable reading; orientation is.
 **Consequence for the target table:** the flattening goal is met for *straight text* and not met for
 *page squareness*. The next metric to add is page squareness (the angle of the sheet's own edges in
 the output), and the next fix is to drive deskew from it.
+
+### Page squareness, measured: the VLM's "half are not flat" does not reproduce
+
+Built the metric the vision models implied — the angle of the text lines in the output, distinct
+from the bow:
+
+| metric | value over the 129-page run |
+|---|---|
+| bow (are lines straight) | 0.04 % of width, none above 3 % |
+| **page squareness (is the page square)** | **median 0.42°, p90 1.24°, 11 of 103 above 1°** |
+| vertical rule tilt (design angle) | 1.29° median |
+| vision models, 64 pages | **32 of 64 called "visibly not flat"** |
+
+So the pages are, by measurement, mostly square — a median of less than half a degree — and eleven
+are above one degree. That does not support a claim that half of them are visibly wrong.
+
+Given the agents reached that verdict inconsistently (one said true for all eight of its pages,
+another false for all eight), the honest reading is that **the flatness verdict at 380 px per page
+is not a reliable observation**, while the same agents' orientation verdicts were right on all three
+pages I could check by hand. Two claims from one observer, one corroborated and one not — which is
+why the metric was built rather than the claim believed.
+
+The squareness number is worth keeping as a target in its own right: it is the defect a reader sees
+first, and eleven pages above one degree is a concrete, fixable set.

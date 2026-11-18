@@ -55,6 +55,29 @@ def bow_pct(im: np.ndarray, min_chars: int = 6) -> float | None:
     return 100.0 * st.median(vals) / im.shape[1]
 
 
+def page_squareness(im: np.ndarray, min_chars: int = 6) -> float | None:
+    """Angle of the text lines, in degrees: is the page sitting square in the frame.
+
+    Distinct from the bow, which asks whether a line is straight. A page can have
+    perfectly straight lines and still be rotated a degree or two, which is what a
+    vision model calls "not flat" and what a line-straightness measure cannot see.
+    """
+    slopes = []
+    for l in detect_lines(im):
+        if len(l.boxes) < min_chars:
+            continue
+        x0 = min(b[0] for b in l.boxes)
+        x1 = max(b[0] + b[2] for b in l.boxes)
+        if x1 - x0 < 0.1 * im.shape[1]:
+            continue
+        y0 = np.mean([b[1] + b[3] for b in l.boxes if b[0] < (x0 + x1) / 2])
+        y1 = np.mean([b[1] + b[3] for b in l.boxes if b[0] >= (x0 + x1) / 2])
+        slopes.append(float(np.degrees(np.arctan2(y1 - y0, (x1 - x0) / 2.0))))
+    if len(slopes) < 3:
+        return None
+    return float(np.median(slopes))
+
+
 def cut_lines(im: np.ndarray, edge: int = 6, seam: str | None = None) -> int:
     """Detected lines that touch the frame: their box is clipped by it.
 
@@ -137,6 +160,7 @@ def main(argv=None) -> int:
             "vbow": v.get("bow_pct"),
             "rules": v["rules"],
             "band": round(band_frac(im), 3),
+            "square": page_squareness(im),
             "cut_lines": cut_lines(im, seam=("right" if f.stem.endswith("_p1") else
                                              "left" if f.stem.endswith("_p2") else None)),
             "source_limited": source_limited(f.name),
@@ -152,6 +176,10 @@ def main(argv=None) -> int:
     if tilts:
         print(f"tilt median |deg|    {st.median(tilts):.2f}   p90 {np.percentile(tilts, 90):.2f}")
         print(f"tilt above 1 deg     {sum(1 for x in tilts if x > 1)}")
+    sq = [abs(r["square"]) for r in rows if r.get("square") is not None]
+    if sq:
+        print(f"page squareness |deg| median {st.median(sq):.2f}  p90 {np.percentile(sq, 90):.2f}  "
+              f"above 1 deg {sum(1 for x in sq if x > 1)}")
     if vb:
         print(f"vertical bow median  {st.median(vb):.2f} %  p90 {np.percentile(vb, 90):.2f}")
     print(f"background band >.5  {sum(1 for r in rows if r['band'] > 0.5)}")
