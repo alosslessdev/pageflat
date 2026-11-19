@@ -544,3 +544,27 @@ session that has improved the worst band pages at all.
 Cost, measured: ~9–14 minutes per pair of pages through a vision agent, so the 48 band pages in the
 benchmark are an hour of annotation rather than a rule change. For the 5,737-page corpus it would be
 ~40 hours of model time, which is why the file-based route exists: annotate once, apply in a run.
+
+## Eight vision quads: better on average, and just as wrong when wrong
+
+| page | learned mask | vision quad |
+|---|---|---|
+| `224218` | 1.00 | **0.39** |
+| `224359` | 1.00 | **0.29** |
+| `224210_p1` | 0.54 | **0.39** |
+| `124522` | 0.52 | **0.42** |
+| `224210_p2` | 0.30 | 0.30 |
+| `224512` | 0.57 | 0.61 |
+| `224505` | 0.19 | **0.75** |
+| `224606` | 0.44 | **1.00** |
+| `224551` | 1.00 | 1.00 |
+
+**Median 0.54 → 0.42, pages above 0.5 from 6 → 4, four improved and four worse.** The wins are the
+worst pages, which is what matters — but a wrong quad is as damaging as a wrong mask (`224606` goes
+from 0.44 to a completely covered edge), so this route needs a check, not blind trust. The check that
+exists is the content gate: every page here was accepted, so `keeps_text` did not catch it either.
+
+**Blocker: the annotation cannot be scaled right now** — the vision agents return
+`402 Insufficient balance` from the API, so the remaining 40 band pages cannot be annotated until the
+account is topped up. The machinery is in place (`--quads-file`), and the cost is known: ~10 minutes
+per pair of pages.
