@@ -33,6 +33,7 @@ class Settings:
     quad_url: str = ""              # vision model for the sheet's four corners
     quads_file: str = ""            # precomputed {stem: [[x,y]x4]} quads, 0-1 normalised
     orient_file: str = ""           # precomputed {stem: 0|90|180|270} orientation decisions
+    trim_file: str = ""             # precomputed {stem: {top,bottom,left,right}} fractions to trim
     align_axes: bool = False        # OFF: the padded squareness rotation measured worse on the
                                     # full set (squareness 0.42 -> 0.56 deg, pages above 1 deg
                                     # 11 -> 17) even though it helped the pages that suggested it
@@ -140,6 +141,39 @@ def page_kind(rect: np.ndarray, settings: Settings) -> str:
 
 _QUADS: dict | None = None
 _ORIENT: dict | None = None
+_TRIM: dict | None = None
+
+
+def _load_trim(path: str) -> dict:
+    global _TRIM
+    if _TRIM is None:
+        import json
+
+        try:
+            _TRIM = json.loads(Path(path).read_text())
+        except Exception:  # noqa: BLE001
+            _TRIM = {}
+    return _TRIM
+
+
+def _apply_trim(page: np.ndarray, page_name: str, trim_file: str = "") -> np.ndarray:
+    """Trim fractions of each side. The crop a reader prefers is per page and per
+    side -- a fixed 3 % trim was wrong on six of eight pages -- so it comes from an
+    annotation rather than from a threshold."""
+    pre = _load_trim(trim_file) if trim_file else {}
+    key = Path(page_name).stem
+    spec = pre.get(key) or pre.get(key.split("_p")[0])
+    if not spec:
+        return page
+    h, w = page.shape[:2]
+    t = int(h * float(spec.get("top", 0.0)))
+    b = int(h * float(spec.get("bottom", 0.0)))
+    l = int(w * float(spec.get("left", 0.0)))
+    r = int(w * float(spec.get("right", 0.0)))
+    if t + b >= h or l + r >= w:
+        return page
+    out = page[t:h - b, l:w - r]
+    return out if out.size else page
 
 
 def _load_orient(path: str) -> dict:
@@ -767,6 +801,7 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                         if settings.deskew:
                             page, _sk = _deskew_final(page)
                             res.pick["deskew_final"] = round(_sk, 2)
+                    page = _apply_trim(page, str(s["path"]), settings.trim_file)
                     suffix = "" if len(kept) == 1 else f"_p{i + 1}"
                     out_path = out_dir / f"{s['path'].stem}{suffix}.png"
                     if out_path.exists():

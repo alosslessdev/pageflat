@@ -673,3 +673,24 @@ kept disagreeing and why every global rule I wrote died on the next benchmark.
 
 It also confirms the route that now exists: `--quads-file` and `--orient-file` let a vision model
 make that decision per page, and the pipeline applies it exactly once.
+
+## The pipeline now takes the whole per-page decision from annotations
+
+Three files, all applied exactly once, all overriding the detectors rather than adding to them:
+
+| flag | shape | decided by |
+|---|---|---|
+| `--quads-file` | `{stem: [[x,y]x4]}` normalised | where the sheet is |
+| `--orient-file` | `{stem: 0\|90\|180\|270}` | which way is up |
+| `--trim-file` | `{stem: {top,bottom,left,right}}` fractions | how much margin to leave per side |
+
+Measured on the one page with a recorded trim preference: `1527x2540 band 0.68` becomes
+`1482x2464 band 0.44`, and the other page in the batch is untouched because its worst side was not
+annotated. That is the shape of the fix the eight preferences argued for — **per page, per side** —
+and it is the only route left standing: every global rule (OTSU threshold, curvature gain, tilt,
+squareness, shear, the nine SAM variants, the intersection outline, the annotated quads taken as
+given, the fixed 3 % trim) was measured and did not survive the next benchmark.
+
+Cost scales with annotation, not with compute: 4 pages per agent per 10–20 minutes in this session's
+measurements, so roughly 40 hours of model time for the 5,737-page corpus, versus 1.5 s per page to
+apply.

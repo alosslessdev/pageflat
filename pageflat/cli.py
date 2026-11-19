@@ -91,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="concurrent images inside one process; keeps the GPU busy "
                          "while the CPU decodes/encodes the neighbouring images")
     ap.add_argument("--json", help="write a JSON report of all results here")
+    ap.add_argument("--trim-file", default="",
+                    help="JSON {source stem: {top,bottom,left,right}} fractions to trim per side, "
+                         "annotated offline; the preferred crop is per page and per side")
     ap.add_argument("--orient-file", default="",
                     help="JSON {source stem: 0|90|180|270} of orientation decisions annotated "
                          "offline; wins over the detectors")
@@ -128,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
         quad_url=args.quad_url,
         quads_file=args.quads_file,
         orient_file=args.orient_file,
+        trim_file=args.trim_file,
         straighten_edges=not args.no_edge_shear,
         fix_tilt=not args.no_tilt,
         save_debug=args.debug,
