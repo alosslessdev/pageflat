@@ -761,3 +761,30 @@ The geometric findings survive — squareness 0.54 → 0.45 and pages above 1° 
 the pages that *did* survive, and the fix did not touch them — but **the acceptance column means
 nothing until the benchmark is re-run with the bug fixed**, which is the next thing to do rather
 than another rule change.
+
+## it10: the bug fix restores acceptance, and the scoreboard flips
+
+128 pages, **100 of 100 accepted, zero errors** — the acceptance losses in it8 and it9 were entirely
+the `KeyError`.
+
+| metric | it7 (bug happened not to fire) | it10 (bug fixed, narrow rule + padded squareness) |
+|---|---|---|
+| accepted | 100/100 | **100/100** |
+| pages | 129 | 128 |
+| bow median | 0.04 % | 0.04 % |
+| bow above 3 % | 0 | 0 |
+| **squareness median** | **0.42°** | 0.56° |
+| **squareness above 1°** | **11** | 17 |
+| **background band** | **43** | 48 |
+| cut lines | 39 | **34** |
+| **misoriented** | **7** | 12 |
+
+With the bug fixed the comparison is finally honest, and **both recent fixes are net negative at
+scale**: the padded squareness rotation makes squareness worse (0.42 → 0.56, pages above 1° 11 → 17)
+and the text-grid guard makes orientation worse (7 → 12), while the cut improves (39 → 34) only
+because the gridless pages are no longer deleted — the pages that were always there now count.
+
+**So both are switched off** (`align_axes=False`, and the grid guard removed), leaving the
+configuration that measures best — it7's — with the `KeyError` fix that was a genuine bug. The AAD
+module stays as the metric the papers define, and `--orient-url` / `--quad-url` stay as opt-in routes
+for the 15 % of pages the cheap path cannot see.

@@ -31,7 +31,9 @@ class Settings:
     straighten_edges: bool = True   # shear rows so the sheet's own edge is a straight line
     orient_url: str = ""            # vision model for pages where OCR cannot decide
     quad_url: str = ""              # vision model for the sheet's four corners
-    align_axes: bool = True         # align feature lines to the axes before the warp
+    align_axes: bool = False        # OFF: the padded squareness rotation measured worse on the
+                                    # full set (squareness 0.42 -> 0.56 deg, pages above 1 deg
+                                    # 11 -> 17) even though it helped the pages that suggested it
     fix_tilt: bool = False          # OFF: the rule-based lean squares the *content*, not
                                     # the page (see docs/LOOP.md) and made the page edge
                                     # worse on 13 of 30 pages
@@ -383,14 +385,13 @@ def _orient_final(page: np.ndarray, detector, orient_url: str = "") -> tuple[np.
         # it and the fast classifier agrees.
         from .charlines import detect_lines
 
-        grid = [l for l in detect_lines(small) if len(l.boxes) >= 6]
-        alt = orientation.detect_rotation_fast(page, device=str(detector.device))
-        if len(grid) < 5 or alt != angle:
-            # No text grid, or the two detectors disagree: leave the page alone.
-            # Returning here rather than setting `angle = 0` is what fixes the
-            # KeyError(0) that silently dropped every page of this class — eight or
-            # nine per hundred sources, in every run.
-            return page, 0
+        if False:
+            # The text-grid and second-opinion guard was measured and is net
+            # negative on the full set (misoriented 7 -> 12 with it), so rotation is
+            # decided by the OCR score alone; the contradiction check below stays
+            # because it did help. The early return it once contained is what fixed
+            # the KeyError(0) that dropped gridless pages, so it must not come back.
+            pass
         # A detector that answers the same angle for a page and for that page
         # rotated by it is contradicting itself — three pages do exactly this. Ask
         # a different model rather than trusting an answer that cannot be acted on.
