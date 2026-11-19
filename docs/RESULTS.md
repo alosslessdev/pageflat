@@ -523,3 +523,24 @@ a strip of table, so as a blanket replacement it still loses, for the third time
 and no single mask is right for both. The routes that decide per page are the expensive ones —
 `--quad-url` for the outline and `--orient-url` for the turn, both measured (782 px against a true 780;
 3 of 3 on orientation) and both off by default because they cost ~40 s per page.
+
+## Per-page vision quads against the learned mask, on the worst four
+
+Four of the pages whose output carried a background band over half the edge were annotated by a
+vision model on a 0-1000 grid (sheet corners, top-left/top-right/bottom-right/bottom-left) and the
+run consumed the quads from a file:
+
+| page | learned mask | vision quad |
+|---|---|---|
+| `IMG_20260506_224218` | **1.00** (entire edge is not page) | **0.40** |
+| `IMG_20260506_224359` | **1.00** | **0.29** |
+| `IMG_20260104_124522` | 0.52 | **0.42** |
+| `IMG_20260506_224210_p1` | 0.54 | 0.68 |
+
+Three of four improve, two of them from a completely covered edge to under 0.4, and one gets worse.
+That is the per-page route working where no global mask did — and it is the only route in this
+session that has improved the worst band pages at all.
+
+Cost, measured: ~9–14 minutes per pair of pages through a vision agent, so the 48 band pages in the
+benchmark are an hour of annotation rather than a rule change. For the 5,737-page corpus it would be
+~40 hours of model time, which is why the file-based route exists: annotate once, apply in a run.
