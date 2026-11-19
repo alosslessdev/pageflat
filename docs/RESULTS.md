@@ -468,3 +468,20 @@ for it**: shown a photographically obvious two-page catalogue spread it answered
 at 0.77, and called one of its halves "spread" at 0.96. The question was removed rather
 than shipped as a gate, for the same reason as the sheet-visibility question: coarse
 content type is within this classifier, fine spatial judgements are not.
+
+## Is 64 MP enough? The halftone test says yes
+
+A capture out-resolves the print when the printed screen becomes visible as dots — at that point
+the camera is no longer the limit. Measured on a native-resolution 512x512 patch from
+`IMG_20260506_224643` (a flyer with product photographs):
+
+| | |
+|---|---|
+| FFT peak / median | **468 : 1** |
+| period of the screen | **19 px** |
+| visual | the toner speckle and letter edges are resolved individually |
+
+So the screen of the printed image is resolved with room to spare, which is the measurement behind
+"two pages at once is fine": at 19 px per halftone cell, halving the working resolution still
+leaves the screen visible. It also means the corpus is *not* limited by capture resolution — the
+remaining defects are geometric (perspective, curl, squareness), not optical.
