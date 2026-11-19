@@ -645,3 +645,31 @@ deskew, only the outline differing — and the labels should carry a reason, as 
 preference cannot silently be about something else. The eight labels here are kept for that reason
 and not used as a score: they are a worked example of how a comparison can be invalidated by a
 confound the metrics cannot see.
+
+## A fixed 3 % trim is wrong on six pages out of eight
+
+The comparison the earlier one should have been: the same output page twice, identical in orientation,
+flattening and deskew, differing only in that **B trims 3 % off its two worst-band sides** and A does
+not. A vision model chose between them and named the criterion:
+
+| pair | preferred | criterion | what decided it |
+|---|---|---|---|
+| q00 | A | margin | B sits flush against the print; A has a white margin |
+| q01 | A | content | B trims the price column mid-glyph |
+| q02 | **B** | foreign | A carries a black tabletop band; B halves it |
+| q03 | **B** | foreign | B removes the green bag and most of the tabletop |
+| q04 | A | margin | B slices the flyer's header band and leaves no margin |
+| q05 | A | content | B cuts `219.95` to `19.95` |
+| q06 | A | margin | B chews into the green border |
+| q07 | A | content | B slices the bottom web-offer banner |
+
+**Six to two against the trim.** Trimming helps exactly where the edge holds foreign material (q02,
+q03) and hurts everywhere it would touch print (q01, q05, q07) or leave no margin (q00, q04, q06).
+
+That settles the question this session could not answer with a scalar: **the correct crop is a
+per-page, per-side decision, and no fixed fraction can make it.** The band metric wants the trim, the
+content wants no trim, and both are right on the pages they describe — which is why the three metrics
+kept disagreeing and why every global rule I wrote died on the next benchmark.
+
+It also confirms the route that now exists: `--quads-file` and `--orient-file` let a vision model
+make that decision per page, and the pipeline applies it exactly once.
