@@ -379,19 +379,11 @@ def _orient_final(page: np.ndarray, detector, orient_url: str = "") -> tuple[np.
                 return cv2.rotate(page, _ROTATE[vis]), vis
         return page, angle
     if angle in _ROTATE:
-        # A page with no text grid is a flyer, and a flyer's mirrored advertising
-        # banner "reads" better upside down: three pages in it7 were flagged while
-        # being perfectly upright. Rotate only when there is a text grid to justify
-        # it and the fast classifier agrees.
-        from .charlines import detect_lines
-
-        if False:
-            # The text-grid and second-opinion guard was measured and is net
-            # negative on the full set (misoriented 7 -> 12 with it), so rotation is
-            # decided by the OCR score alone; the contradiction check below stays
-            # because it did help. The early return it once contained is what fixed
-            # the KeyError(0) that dropped gridless pages, so it must not come back.
-            pass
+        # A text-grid and second-opinion guard lived here and was measured net
+        # negative on the full set (misoriented 7 -> 12 with it), so rotation is
+        # decided by the OCR score alone. Its early return is what fixed the
+        # KeyError(0) that dropped every gridless page; do not reintroduce a path
+        # that sets `angle = 0` and then indexes `_ROTATE`.
         # A detector that answers the same angle for a page and for that page
         # rotated by it is contradicting itself — three pages do exactly this. Ask
         # a different model rather than trusting an answer that cannot be acted on.
