@@ -32,6 +32,7 @@ class Settings:
     orient_url: str = ""            # vision model for pages where OCR cannot decide
     quad_url: str = ""              # vision model for the sheet's four corners
     quads_file: str = ""            # precomputed {stem: [[x,y]x4]} quads, 0-1 normalised
+    orient_file: str = ""           # precomputed {stem: 0|90|180|270} orientation decisions
     align_axes: bool = False        # OFF: the padded squareness rotation measured worse on the
                                     # full set (squareness 0.42 -> 0.56 deg, pages above 1 deg
                                     # 11 -> 17) even though it helped the pages that suggested it
@@ -138,6 +139,19 @@ def page_kind(rect: np.ndarray, settings: Settings) -> str:
 
 
 _QUADS: dict | None = None
+_ORIENT: dict | None = None
+
+
+def _load_orient(path: str) -> dict:
+    global _ORIENT
+    if _ORIENT is None:
+        import json
+
+        try:
+            _ORIENT = json.loads(Path(path).read_text())
+        except Exception:  # noqa: BLE001
+            _ORIENT = {}
+    return _ORIENT
 
 
 def _load_quads(path: str) -> dict:
@@ -376,7 +390,8 @@ def _deskew_final(page: np.ndarray, max_angle: float = 12.0) -> tuple[np.ndarray
                           borderMode=cv2.BORDER_REPLICATE), float(angle)
 
 
-def _orient_final(page: np.ndarray, detector, orient_url: str = "") -> tuple[np.ndarray, int]:
+def _orient_final(page: np.ndarray, detector, orient_url: str = "",
+                  orient_file: str = "", page_name: str = "") -> tuple[np.ndarray, int]:
     """Turn the finished page upright, but only when two detectors agree.
 
     The fast classifier is a MobileNet that sees a thumbnail; on half a spread it
@@ -398,6 +413,13 @@ def _orient_final(page: np.ndarray, detector, orient_url: str = "") -> tuple[np.
         # softening is enough to flip the answer on a graphic page (the same page
         # reads 180 with one interpolation and 0 with the other).
         small = cv2.resize(page, (int(w * s_), int(h * s_)), interpolation=cv2.INTER_LINEAR)
+    if orient_file:
+        # Annotated decisions are applied where the page is first turned, not here:
+        # rotating here as well turned the page twice. So this is a no-op.
+        key = Path(page_name).stem if page_name else ""
+        pre = _load_orient(orient_file)
+        if any(k in pre for k in (key, key.split("_p")[0])):
+            return page, int(pre.get(key, pre.get(key.split("_p")[0], 0))) % 360
     angle = orientation.detect_rotation(small)
     if angle not in _ROTATE and orient_url:
         # no rotation was earned: this is the class where OCR is blind (15 % of the
@@ -614,9 +636,24 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
             s["rect_t"] = None                     # free the device copy at once
             angle = 0
             if settings.auto_orient:
-                angle = orientation.detect_rotation_fast(rect, device=str(detector.device))
-                if angle in _ROTATE:
-                    rect = cv2.rotate(rect, _ROTATE[angle])
+                annotated = None
+                if settings.orient_file:
+                    pre = _load_orient(settings.orient_file)
+                    key = Path(str(s["path"])).stem
+                    for k in (key, key.split("_p")[0]):
+                        if k in pre:
+                            annotated = int(pre[k]) % 360
+                            break
+                if annotated is not None:
+                    # The annotation replaces the detector here rather than adding to
+                    # it: applying both rotated the page twice.
+                    if annotated in _ROTATE:
+                        rect = cv2.rotate(rect, _ROTATE[annotated])
+                    angle = annotated
+                else:
+                    angle = orientation.detect_rotation_fast(rect, device=str(detector.device))
+                    if angle in _ROTATE:
+                        rect = cv2.rotate(rect, _ROTATE[angle])
             s["res"].rotation = angle
             s["rect"] = rect
         ready = [s for s in live if s["rect"] is not None]
@@ -723,7 +760,8 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                         # misoriented in it6 against 7 with this alone.
                         if settings.fix_tilt:
                             page = _tilt_final(page)
-                        page, _ang = _orient_final(page, detector, settings.orient_url)
+                        page, _ang = _orient_final(page, detector, settings.orient_url,
+                                                   settings.orient_file, str(s["path"]))
                         if _ang in _ROTATE:
                             res.rotation = _ang
                         if settings.deskew:
@@ -982,7 +1020,8 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
             if settings.auto_orient:
                 if settings.fix_tilt:
                     page = _tilt_final(page)
-                page, final_angle = _orient_final(page, detector, settings.orient_url)
+                page, final_angle = _orient_final(page, detector, settings.orient_url,
+                                                  settings.orient_file, str(path))
                 if final_angle in _ROTATE:
                     res.rotation = final_angle
                 if settings.deskew:

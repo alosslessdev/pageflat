@@ -91,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="concurrent images inside one process; keeps the GPU busy "
                          "while the CPU decodes/encodes the neighbouring images")
     ap.add_argument("--json", help="write a JSON report of all results here")
+    ap.add_argument("--orient-file", default="",
+                    help="JSON {source stem: 0|90|180|270} of orientation decisions annotated "
+                         "offline; wins over the detectors")
     ap.add_argument("--quads-file", default="",
                     help="JSON {source stem: [[x,y] x4]} of sheet corners, normalised 0-1; "
                          "produced offline by a vision model, one page at a time")
@@ -124,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
         orient_url=args.orient_url,
         quad_url=args.quad_url,
         quads_file=args.quads_file,
+        orient_file=args.orient_file,
         straighten_edges=not args.no_edge_shear,
         fix_tilt=not args.no_tilt,
         save_debug=args.debug,
