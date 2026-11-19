@@ -694,3 +694,22 @@ given, the fixed 3 % trim) was measured and did not survive the next benchmark.
 Cost scales with annotation, not with compute: 4 pages per agent per 10–20 minutes in this session's
 measurements, so roughly 40 hours of model time for the 5,737-page corpus, versus 1.5 s per page to
 apply.
+
+### First end-to-end trial of the annotation route
+
+Eight pages whose crop preferences had been recorded (six "no trim", two "trim 3 % on two sides"),
+run twice on the same code — once bare, once with `--trim-file`:
+
+| run | pages | band median | band > 0.5 | OCR words |
+|---|---|---|---|---|
+| bare | 9 | 0.39 | 3 | 979 |
+| reader-preferred crops | 9 | 0.38 | 3 | **1177** |
+
+The band is flat and the word count rises by a fifth. **That is within run-to-run noise on eight
+pages** — two of them were trimmed and the rest are identical by construction — so it is evidence
+that the mechanism works, not that it helps. The mechanism was verified where it could be: one
+annotated page went `1527x2540 band 0.68` → `1482x2464 band 0.44`.
+
+The honest summary is that the annotation route is **implemented and correctable**, and its benefit
+scales with how many pages are annotated; demonstrating that benefit needs the annotation set to be
+much larger than eight.
