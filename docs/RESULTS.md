@@ -504,3 +504,22 @@ Depth Anything 3's ONNX export takes a stack of views.
 mean. The limit is not the depth — it is that the page is only about a third of the frame, so two
 thirds of the points being fitted are table, other sheets and background. **Multi-view gives
 consistency, not segmentation**, and segmentation is the same wall the mask keeps hitting.
+
+## SAM against the learned mask on the pages that need it (clean A/B)
+
+The 25 sources whose output carried a background band over half the edge, run twice — the learned
+mask and `--sam` — now that the `KeyError` no longer deletes pages:
+
+| mask | outputs | band median | band > 0.5 | pages with cut lines |
+|---|---|---|---|---|
+| learned (docTR) | 32 | 0.69 | 23 | **5** |
+| SAM (grid-prompted) | 33 | **0.58** | **19** | **13** |
+
+SAM does what it looked like it did — it tightens the sheet and reduces the band on four pages — and
+it **more than doubles the pages where text is cut** (5 → 13). Cutting content is worse than keeping
+a strip of table, so as a blanket replacement it still loses, for the third time.
+
+**The conclusion the whole session has been circling:** the masks trade background against content,
+and no single mask is right for both. The routes that decide per page are the expensive ones —
+`--quad-url` for the outline and `--orient-url` for the turn, both measured (782 px against a true 780;
+3 of 3 on orientation) and both off by default because they cost ~40 s per page.
