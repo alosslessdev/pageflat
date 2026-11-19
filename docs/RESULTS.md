@@ -568,3 +568,29 @@ exists is the content gate: every page here was accepted, so `keeps_text` did no
 `402 Insufficient balance` from the API, so the remaining 40 band pages cannot be annotated until the
 account is topped up. The machinery is in place (`--quads-file`), and the cost is known: ~10 minutes
 per pair of pages.
+
+## The quads trade background for cuts, exactly as SAM did
+
+The earlier eight-page comparison was **confounded** and has to be discounted: `--quads-file` was
+only honoured by the CPU path, so runs with `--gpu-path` silently ignored it, and the differences I
+saw came from code changes between runs rather than from the quads. Wiring the same branch into the
+GPU path (it builds its own quad and bypassed `rectified_sheets`) makes the comparison possible.
+
+Same code, same 25 worst-band sources, only the quads differ:
+
+| outline from | outputs | band median | band > 0.5 | pages with cut text |
+|---|---|---|---|---|
+| learned mask | 32 | 0.69 | 22 | **6** |
+| **vision quads** | 33 | **0.47** | **16** | **13** |
+
+So the annotated outline does what it promised on background — median 0.69 → 0.47, pages above 0.5
+from 22 → 16 — and **more than doubles the pages that lose text** (6 → 13).
+
+**That is the fourth method to make the same trade**: learned mask, SAM, their intersection, and now
+per-page annotation. A tighter outline always removes background and always takes content with it,
+and the annotation does not escape the trade because a human-equivalent outline is exactly what a
+tighter mask is.
+
+The mechanism that can capture the win without the cost is the one already used for splits:
+**decide per page by measured outcome** — crop tighter only where doing so does not cut a detected
+line — and it now has to be applied to the two quads rather than only to the two masks.

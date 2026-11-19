@@ -530,8 +530,28 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
         for s, mask in zip(states, masks):
             res = s["res"]
             try:
-                quad = _quad_from_mask(detector, s["small"], mask, s["scale"], settings,
-                                       s["img"].shape, settings.use_sam)
+                quad = None
+                if settings.quads_file:
+                    # The GPU path builds its own quad and so bypassed the
+                    # annotated-outline branch in `rectified_sheets`: a run with
+                    # `--gpu-path --quads-file` silently ignored the file, which is
+                    # how an earlier "quads fix the band" comparison was confounded.
+                    quads = _load_quads(settings.quads_file)
+                    key = Path(str(s["path"])).stem
+                    entry = quads.get(key) or quads.get(key.split("_p")[0])
+                    if entry:
+                        pts = np.array(entry, np.float32)
+                        if pts.max() <= 1.5:
+                            pts = pts * np.array([s["img"].shape[1], s["img"].shape[0]],
+                                                 np.float32)
+                        quad = geom.PageQuad(
+                            points=pts,
+                            area_frac=float(abs(cv2.contourArea(pts))
+                                            / (s["img"].shape[0] * s["img"].shape[1])),
+                            rectangularity=1.0, score=1.0)
+                if quad is None:
+                    quad = _quad_from_mask(detector, s["small"], mask, s["scale"], settings,
+                                           s["img"].shape, settings.use_sam)
             except Exception as exc:  # noqa: BLE001
                 res.reason = repr(exc)
                 continue
