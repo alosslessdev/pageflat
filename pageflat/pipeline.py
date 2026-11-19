@@ -31,6 +31,7 @@ class Settings:
     straighten_edges: bool = True   # shear rows so the sheet's own edge is a straight line
     orient_url: str = ""            # vision model for pages where OCR cannot decide
     quad_url: str = ""              # vision model for the sheet's four corners
+    quads_file: str = ""            # precomputed {stem: [[x,y]x4]} quads, 0-1 normalised
     align_axes: bool = False        # OFF: the padded squareness rotation measured worse on the
                                     # full set (squareness 0.42 -> 0.56 deg, pages above 1 deg
                                     # 11 -> 17) even though it helped the pages that suggested it
@@ -136,7 +137,23 @@ def page_kind(rect: np.ndarray, settings: Settings) -> str:
         return "unknown"
 
 
-def rectified_sheets(img: np.ndarray, detector, settings: Settings
+_QUADS: dict | None = None
+
+
+def _load_quads(path: str) -> dict:
+    global _QUADS
+    if _QUADS is None:
+        import json
+
+        try:
+            _QUADS = json.loads(Path(path).read_text())
+        except Exception:  # noqa: BLE001
+            _QUADS = {}
+    return _QUADS
+
+
+def rectified_sheets(img: np.ndarray, detector, settings: Settings,
+                     page: str | Path = ""
                      ) -> list[tuple[np.ndarray, np.ndarray, float, float]]:
     """Perspective correction first: one homography per physical sheet.
 
@@ -145,6 +162,20 @@ def rectified_sheets(img: np.ndarray, detector, settings: Settings
     then clipped whichever sheet sat further inside the hull.
     """
     small, scale = resize_long_side(img, settings.mask_work_side)
+    if settings.quads_file:
+        # A vision model annotates the sheet outline offline, page by page, and the
+        # run consumes the answers. This is the only route that decides the outline
+        # per page instead of applying one mask to all of them.
+        quads = _load_quads(settings.quads_file)
+        key = Path(page).stem if page else ""
+        entry = quads.get(key) or quads.get(key.split("_p")[0])
+        if entry:
+            pts = np.array(entry, np.float32)
+            if pts.max() <= 1.5:                       # normalised 0-1
+                pts = pts * np.array([img.shape[1], img.shape[0]], np.float32)
+            rect = perspective.warp_sheet(img, pts, max_side=settings.max_intermediate)
+            area = abs(cv2.contourArea(pts)) / float(img.shape[0] * img.shape[1])
+            return [(rect, pts, area, 1.0)]
     if settings.quad_url:
         # A strong vision model places the four corners where the learned mask
         # over-reaches onto pale furniture (measured: 782 px against a true edge of
@@ -717,7 +748,7 @@ def process_image(path: str | Path, out_dir: str | Path, detector,
             if route.kind == "not_page" and route.confidence >= 0.6:
                 res.status, res.reason = "rejected", "router: not a page"
                 return res
-        sheets = rectified_sheets(img, detector, settings)
+        sheets = rectified_sheets(img, detector, settings, page=path)
         if not sheets:
             res.status, res.reason = "rejected", "no page mask"
             return res

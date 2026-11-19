@@ -91,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="concurrent images inside one process; keeps the GPU busy "
                          "while the CPU decodes/encodes the neighbouring images")
     ap.add_argument("--json", help="write a JSON report of all results here")
+    ap.add_argument("--quads-file", default="",
+                    help="JSON {source stem: [[x,y] x4]} of sheet corners, normalised 0-1; "
+                         "produced offline by a vision model, one page at a time")
     ap.add_argument("--quad-url", default="",
                     help="vision model (llama-server) that places the sheet's four corners, "
                          "for pages where the learned mask over-reaches onto pale surfaces; "
@@ -120,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         paper_reach=args.paper_reach,
         orient_url=args.orient_url,
         quad_url=args.quad_url,
+        quads_file=args.quads_file,
         straighten_edges=not args.no_edge_shear,
         fix_tilt=not args.no_tilt,
         save_debug=args.debug,
