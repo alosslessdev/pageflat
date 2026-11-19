@@ -618,3 +618,30 @@ position is that the per-page annotation route is promising but not yet better t
 That is where the work stops being productive without a real ground truth: OCR word counts, band
 fractions and cut-line counts each disagree about which of two crops is better, and none of them is
 the reader. A hand-labelled crop preference on a few dozen pages is the missing instrument.
+
+## Eight crop preferences, and four of them are about rotation
+
+A vision model was shown eight pairs of crops of the same page — the same source processed by the
+learned mask (A) and by the annotated outline (B) — and asked which a reader would prefer:
+
+| pair | preferred | why |
+|---|---|---|
+| p00 | B | A carries a fingertip and a dark strip at the border, and clips the left margin |
+| p01 | B | A slices the red panel at the bottom and the price column at the right |
+| p02 | B | A cuts the right column mid-price |
+| p03 | **A** | **B is rotated 180°** |
+| p04 | **A** | **B is rotated clockwise**; its edges slice the bottom row |
+| p05 | A | B cuts the whole masthead, though A keeps a dark table strip |
+| p06 | **A** | **B is rotated 180°** |
+| p07 | **B** | **A is rotated 90°** |
+
+**Four of the eight decisions are about rotation, not about cropping.** That is not a failure of the
+labels — it is the answer to why the three automatic metrics kept disagreeing: band fraction, cut
+lines and OCR word counts all measure the outline, while *the thing a reader notices first is whether
+the page is the right way up*, and the two runs differed in that as well as in outline.
+
+So the instrument needs to be rebuilt with the defect under test held fixed — same rotation, same
+deskew, only the outline differing — and the labels should carry a reason, as these do, so a
+preference cannot silently be about something else. The eight labels here are kept for that reason
+and not used as a score: they are a worked example of how a comparison can be invalidated by a
+confound the metrics cannot see.
