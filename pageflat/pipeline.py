@@ -173,7 +173,18 @@ def _apply_trim(page: np.ndarray, page_name: str, trim_file: str = "") -> np.nda
     if t + b >= h or l + r >= w:
         return page
     out = page[t:h - b, l:w - r]
-    return out if out.size else page
+    if not out.size:
+        return page
+    # Guard: an annotation can be wrong, and a wrong one silently removes text.
+    # Measured on the benchmark, the annotated outlines took one page from 196 words
+    # to none and another from 105 to 53 without any check noticing.
+    keep = float(pre.get(key, pre.get(key.split("_p")[0], {}) or {}).get("_keep", 0.9))
+    before = ocr_text(page)[2]
+    if before >= 8:
+        after = ocr_text(out)[2]
+        if after < keep * before:
+            return page
+    return out
 
 
 def _load_orient(path: str) -> dict:

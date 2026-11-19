@@ -713,3 +713,20 @@ annotated page went `1527x2540 band 0.68` → `1482x2464 band 0.44`.
 The honest summary is that the annotation route is **implemented and correctable**, and its benefit
 scales with how many pages are annotated; demonstrating that benefit needs the annotation set to be
 much larger than eight.
+
+## A guard on wrong annotations, verified both ways
+
+An annotation can be wrong, and the benchmark showed a wrong one is silent: the annotated outlines
+took `224440` from 196 words to none and `224218` from 105 to 53, and nothing noticed. `--trim-file`
+now rejects a trim that keeps less than 90 % of the page's words (and logs nothing, because the check
+is cheap enough to be unconditional).
+
+Verified both ways on the same page:
+
+| annotation | words kept | result |
+|---|---|---|
+| trim 20 % off two sides | above the threshold | applied, `1972x2527` → `1578x2022` |
+| trim 45 % off two sides | below the threshold | **rejected**, stays `1972x2527` |
+
+That is the piece needed before scaling annotation from eight pages to thousands: the failure mode is
+no longer silent.
