@@ -594,3 +594,27 @@ tighter mask is.
 The mechanism that can capture the win without the cost is the one already used for splits:
 **decide per page by measured outcome** — crop tighter only where doing so does not cut a detected
 line — and it now has to be applied to the two quads rather than only to the two masks.
+
+## Three ways of choosing the outline, and none of them wins outright
+
+25 worst-band sources, same code, only the outline decision differs:
+
+| outline decision | outputs | band median | band > 0.5 |
+|---|---|---|---|
+| learned mask | 32 | **0.69** | 22 |
+| annotated quads, taken as given | 33 | **0.47** | **16** |
+| annotated quads, kept only if they retain 90 % of the mask's words | 34 | 0.74 | 18 |
+
+And the word counts behind the middle row explain why it cannot simply be taken: on 32 pages, 19 kept
+90 % or more of their words, 8 gained words, and the rest lost them — **`224440` went from 196 words
+to none**, `224218` from 105 to 53.
+
+So the three options trade against each other and no single rule dominates: taking the quads gives the
+best band and destroys text on a third of the pages; arbitrating on words protects the text and gives
+a worse median band (0.74) than the plain mask, while improving the count (18 vs 22). **The page set
+is too small and the two metrics disagree too often for this to be called a win**, and the honest
+position is that the per-page annotation route is promising but not yet better than the mask.
+
+That is where the work stops being productive without a real ground truth: OCR word counts, band
+fractions and cut-line counts each disagree about which of two crops is better, and none of them is
+the reader. A hand-labelled crop preference on a few dozen pages is the missing instrument.

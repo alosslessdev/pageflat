@@ -531,6 +531,7 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
             res = s["res"]
             try:
                 quad = None
+                alt_quad = None
                 if settings.quads_file:
                     # The GPU path builds its own quad and so bypassed the
                     # annotated-outline branch in `rectified_sheets`: a run with
@@ -544,14 +545,34 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                         if pts.max() <= 1.5:
                             pts = pts * np.array([s["img"].shape[1], s["img"].shape[0]],
                                                  np.float32)
-                        quad = geom.PageQuad(
+                        q_annot = geom.PageQuad(
                             points=pts,
                             area_frac=float(abs(cv2.contourArea(pts))
                                             / (s["img"].shape[0] * s["img"].shape[1])),
                             rectangularity=1.0, score=1.0)
-                if quad is None:
-                    quad = _quad_from_mask(detector, s["small"], mask, s["scale"], settings,
-                                           s["img"].shape, settings.use_sam)
+                        # Keep both: a tighter outline removes background but takes
+                        # content with it (band 0.69 -> 0.47 but cut pages 6 -> 13 on
+                        # the 25 worst), so which one is right is a per-page question.
+                        alt_quad = q_annot
+                mask_quad = _quad_from_mask(detector, s["small"], mask, s["scale"], settings,
+                                            s["img"].shape, settings.use_sam)
+                if alt_quad is not None and mask_quad is not None:
+                    # Arbitrate on the words each outline keeps, not on how many
+                    # lines touch the frame: measured on the 25 worst-band pages, the
+                    # annotated outline lowered the band 0.69 -> 0.47 but destroyed
+                    # text on about a third of them (one page went from 196 words to
+                    # none), and the cut-line test caught almost none of that.
+                    def _words(q):
+                        from .pipeline import ocr_text
+
+                        w = perspective.warp_sheet(s["img"], q.points, max_side=1400)
+                        return ocr_text(w)[2]
+
+                    w_mask = _words(mask_quad)
+                    w_alt = _words(alt_quad)
+                    quad = alt_quad if w_alt >= 0.9 * max(1, w_mask) else mask_quad
+                else:
+                    quad = alt_quad or mask_quad
             except Exception as exc:  # noqa: BLE001
                 res.reason = repr(exc)
                 continue
