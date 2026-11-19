@@ -485,3 +485,22 @@ So the screen of the printed image is resolved with room to spare, which is the 
 "two pages at once is fine": at 19 px per halftone cell, halving the working resolution still
 leaves the screen visible. It also means the corpus is *not* limited by capture resolution — the
 remaining defects are geometric (perspective, curl, squareness), not optical.
+
+## Do the bursts help? Yes for depth, no for finding the page
+
+The corpus shoots each page two or three times within a few seconds — **74 pairs within 10 s in the
+100-page benchmark**, and the pair rendered side by side is unmistakably the same spread from a
+slightly different angle. That makes the user's multi-view idea testable without COLMAP, because
+Depth Anything 3's ONNX export takes a stack of views.
+
+**It really does reason across views.** Feeding the burst pair returns a near-identity relative pose
+(rotation ~0.01 rad, translation 0.02); feeding two unrelated pages returns a large arbitrary one
+(rotation ~110°, translation 0.26). A per-view model would give the same answer for both.
+
+**And the two views agree where it matters:** depth correlation **0.877**, median relative difference
+**1.0 %**.
+
+**But the plane fit barely improves:** inliers 0.311 for view 0, 0.309 for view 1, **0.32** for their
+mean. The limit is not the depth — it is that the page is only about a third of the frame, so two
+thirds of the points being fitted are table, other sheets and background. **Multi-view gives
+consistency, not segmentation**, and segmentation is the same wall the mask keeps hitting.
