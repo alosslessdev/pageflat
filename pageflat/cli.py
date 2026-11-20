@@ -91,6 +91,15 @@ def main(argv: list[str] | None = None) -> int:
                     help="concurrent images inside one process; keeps the GPU busy "
                          "while the CPU decodes/encodes the neighbouring images")
     ap.add_argument("--json", help="write a JSON report of all results here")
+    ap.add_argument("--cp-dewarp", action="store_true",
+                    help="derive control points from the page mask contour and dewarp "
+                         "through them (Xie et al., Document Dewarping with Control Points)")
+    ap.add_argument("--cp-count", type=int, default=24,
+                    help="control points sampled around the page contour for --cp-dewarp")
+    ap.add_argument("--edges-file", default="",
+                    help="JSON {stem: {corners: [[x,y]x4], edges: {top,right,bottom,left: "
+                         "[[x,y],...]}}} of boundary control points, normalised to the source; "
+                         "dewarped by the four curves (DRCCBI / cubic-grid method)")
     ap.add_argument("--trim-file", default="",
                     help="JSON {source stem: {top,bottom,left,right}} fractions to trim per side, "
                          "annotated offline; the preferred crop is per page and per side")
@@ -132,6 +141,9 @@ def main(argv: list[str] | None = None) -> int:
         quads_file=args.quads_file,
         orient_file=args.orient_file,
         trim_file=args.trim_file,
+        edges_file=args.edges_file,
+        cp_dewarp=args.cp_dewarp,
+        cp_count=args.cp_count,
         straighten_edges=not args.no_edge_shear,
         fix_tilt=not args.no_tilt,
         save_debug=args.debug,

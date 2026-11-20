@@ -34,6 +34,9 @@ class Settings:
     quads_file: str = ""            # precomputed {stem: [[x,y]x4]} quads, 0-1 normalised
     orient_file: str = ""           # precomputed {stem: 0|90|180|270} orientation decisions
     trim_file: str = ""             # precomputed {stem: {top,bottom,left,right}} fractions to trim
+    edges_file: str = ""            # precomputed {stem: {corners, edges}} boundary control points
+    cp_dewarp: bool = False         # derive control points from the page mask and dewarp
+    cp_count: int = 24              # how many control points around the contour
     align_axes: bool = False        # OFF: the padded squareness rotation measured worse on the
                                     # full set (squareness 0.42 -> 0.56 deg, pages above 1 deg
                                     # 11 -> 17) even though it helped the pages that suggested it
@@ -142,6 +145,19 @@ def page_kind(rect: np.ndarray, settings: Settings) -> str:
 _QUADS: dict | None = None
 _ORIENT: dict | None = None
 _TRIM: dict | None = None
+_EDGES: dict | None = None
+
+
+def _load_edges(path: str) -> dict:
+    global _EDGES
+    if _EDGES is None:
+        import json
+
+        try:
+            _EDGES = json.loads(Path(path).read_text())
+        except Exception:  # noqa: BLE001
+            _EDGES = {}
+    return _EDGES
 
 
 def _load_trim(path: str) -> dict:
@@ -184,6 +200,24 @@ def _apply_trim(page: np.ndarray, page_name: str, trim_file: str = "") -> np.nda
         after = ocr_text(out)[2]
         if after < keep * before:
             return page
+    return out
+
+
+def _rotate_quad(q, angle: int):
+    """Rotate normalised quad corners by the same clockwise angle as the image, so the
+    annotation stays valid after the page is turned. Not doing this was why the
+    annotated run cut more pages than the baseline: the corners were applied to the
+    rotated image and landed somewhere else."""
+    out = []
+    for x, y in q:
+        if angle == 90:
+            out.append([1.0 - y, x])
+        elif angle == 180:
+            out.append([1.0 - x, 1.0 - y])
+        elif angle == 270:
+            out.append([y, 1.0 - x])
+        else:
+            out.append([x, y])
     return out
 
 
@@ -596,6 +630,8 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
         masks = gpu_ops.page_masks(detector, [s["small"] for s in states]) if states else []
         for s, mask in zip(states, masks):
             res = s["res"]
+            s["mask"] = mask
+            s["mask_shape"] = tuple(np.asarray(mask).shape[:2])
             try:
                 quad = None
                 alt_quad = None
@@ -663,6 +699,45 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
         for s in live:
             res = s["res"]
             try:
+                edge_entry = None
+                if settings.edges_file:
+                    keys = (Path(str(s["path"])).stem, Path(str(s["path"])).stem.split("_p")[0])
+                    payload = _load_edges(settings.edges_file)
+                    edge_entry = next((payload[k] for k in keys if k in payload), None)
+                if edge_entry is None and settings.cp_dewarp:
+                    # Control points can also come straight from the mask: the paper's
+                    # warp is driven by the ordered walk around the page border, so a
+                    # binary mask is sufficient input when no annotation exists.
+                    from . import edges as edge_geom
+
+                    cp = edge_geom.control_points_from_mask(s.get("mask"), settings.cp_count)
+                    if cp is not None:
+                        # the mask lives at mask_work_side, so normalise by the size the
+                        # points were measured in, not by the full image
+                        mh, mw = s.get("mask_shape") or (1, 1)
+                        edge_entry = {"control_points": (cp / np.array(
+                            [mw, mh], np.float64)).tolist()}
+                if edge_entry:
+                    # Control-point rectification (Xie et al. ICDAR 2021): the annotated
+                    # points walk the page edge, the reference walks the rectangle, and
+                    # the remap is built on the reference spacing. Falls back to the
+                    # four boundary curves of the DRCCBI paper when the annotation only
+                    # carries corners and sides.
+                    from . import edges as edge_geom
+
+                    ih, iw = s["img"].shape[:2]
+                    cp = edge_entry.get("control_points")
+                    if cp and len(cp) >= 8:
+                        pts = np.asarray(cp, np.float64) * np.array([iw, ih], np.float64)
+                        warped = edge_geom.dewarp_with_control_points(
+                            s["img"], pts, max_side=settings.max_intermediate)
+                    else:
+                        sides = edge_geom.sides_from_annotation(edge_entry, iw, ih)
+                        warped = edge_geom.dewarp_by_edges(s["img"], sides,
+                                                           settings.max_intermediate)
+                    if warped.size:
+                        s["edge_warped"] = warped
+                        continue
                 out_w, out_h = geom.quad_target_size(s["quad"].points,
                                                      settings.max_intermediate)
                 src = torch.from_numpy(np.ascontiguousarray(s["img"])).to(dev)
@@ -675,9 +750,13 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
 
         # --- orientation needs the numpy page (one download per image)
         for s in live:
-            if s["rect_t"] is None:
+            if s["rect_t"] is None and s.get("edge_warped") is None:
                 continue
-            rect = s["rect_t"].cpu().numpy()
+            if s.get("edge_warped") is not None:
+                rect = s["edge_warped"]
+                s["edge_warped"] = None
+            else:
+                rect = s["rect_t"].cpu().numpy()
             s["rect_t"] = None                     # free the device copy at once
             angle = 0
             if settings.auto_orient:
@@ -690,11 +769,23 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                             annotated = int(pre[k]) % 360
                             break
                 if annotated is not None:
-                    # The annotation replaces the detector here rather than adding to
-                    # it: applying both rotated the page twice.
-                    if annotated in _ROTATE:
+                    # The annotation does not get to overrule the detector on its own:
+                    # measured on the 100-source benchmark the detector was right on all
+                    # but 6 pages while the annotated orientations left 25 needing a
+                    # further turn, so on a disagreement the one that OCRs better wins.
+                    det = orientation.detect_rotation_fast(rect, device=str(detector.device))
+                    if det in _ROTATE and det != annotated and annotated in _ROTATE:
+                        alt = cv2.rotate(rect, _ROTATE[annotated])
+                        if ocr_text(alt)[2] > ocr_text(rect)[2]:
+                            rect = alt
+                            angle = annotated
+                        else:
+                            angle = det
+                    elif annotated in _ROTATE:
                         rect = cv2.rotate(rect, _ROTATE[annotated])
-                    angle = annotated
+                        angle = annotated
+                    else:
+                        angle = 0
                 else:
                     angle = orientation.detect_rotation_fast(rect, device=str(detector.device))
                     if angle in _ROTATE:

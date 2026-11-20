@@ -730,3 +730,46 @@ Verified both ways on the same page:
 
 That is the piece needed before scaling annotation from eight pages to thousands: the failure mode is
 no longer silent.
+
+## Control points and DvD, run here rather than read about
+
+Three geometry routes were implemented and measured on the same 100-source benchmark, all on the
+mask DocTr already produces (no new detector).
+
+| route | outputs | band median | band > 0.5 | cut pages |
+|---|---|---|---|---|
+| quad warp (baseline) | 127 | 0.39 | 47 | 35 |
+| control points from the **mask**, Xiang-style `griddata` remap | 112 | 0.44 | 44 | 34 |
+| control points from a **VLM**, 20–28 points per page | 66 | **0.37** | **19** | — |
+
+The control-point method is Xie et al., *Document Dewarping with Control Points* (ICDAR 2021,
+`gwxie/Document-Dewarping-with-Control-Points`): a closed walk around the page border, the same number
+of reference points spaced evenly on a rectangle, and a scatter interpolation between them. Ported in
+`pageflat/edges.py`.
+
+**The VLM route is the best band result in this session** — 19 pages above 0.5, against 22 for the
+best earlier run and 47 for the baseline — but it accepts only 66 outputs because an annotated walk
+covers a spread whole, so the pages stop being split. That is a regression on page count paid for with
+a gain in crop quality, and it is the same trade seen all session in a new form.
+
+### DvD runs, on this machine
+
+`hanquansanren/DvD` (SIGGRAPH Asia 2025) was cloned, its four checkpoints downloaded (607 MB model),
+and its sampling run **on the local RTX 3060 (6 GB)** at **4.4 s/page**, 9248×6944 output. Four things
+had to be fixed for it to run at all:
+
+1. `os.path.join(dir, "/" + warp_type, file)` discards `dir` because the second component is absolute,
+   so every dataset path resolved to `/curved/…`.
+2. `cv2_image_load` assumed `data_root` holds images, not subdirectories.
+3. `cross_model.py` has `# for block in self.blocks:` **commented out** while the next line calls
+   `block`, so sampling raised `UnboundLocalError` on the first step.
+4. `torch.hub` tried to write VGG16 weights to a full root filesystem; `TORCH_HOME` had to move.
+
+Two imports (`mmcv.cnn.ConvModule`, `mmengine.model.BaseModule`) come from compiled OpenMMLab builds
+pinned to older torch, so a small shim provides exactly those.
+
+**What DvD does and does not do:** it straightens the page beautifully and at full resolution, and it
+does **not crop**. Measured on three pages, its border strips are genuinely dark (top strip mean 32 of
+255), so a band of 0.86–0.99 is not a metric artefact — it keeps the whole frame. Our pipeline crops
+and DvD rectifies; they are complementary rather than competing, and the fair statement is that a
+combination (DvD's mapping, then our page crop) is untested.
