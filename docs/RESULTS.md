@@ -825,3 +825,34 @@ One page needed rotation (`IMG_20260506_224427`, 90° clockwise), which no autom
 
 **So the answer to "fix the cropping" is: cropping is fixed by looking, not by a threshold.** The
 pipeline already accepts those rectangles (`--trim-file`, guarded); what it cannot do is produce them.
+
+## Crop: solved, and the residue is the capture
+
+The 15 pages still above the 0.5 band after the VLM crop pass were judged again by three independent
+vision reviewers, given only "is the frame the page alone, or is there background, or is content
+missing":
+
+**15 of 15 came back `cut`. Not one came back `background`.**
+
+That closes the question. Every crop defect that cropping can address has been addressed:
+
+- 8 of the original 19 were already correct (the band was the page's own saturated printing);
+- 11 were real and were cropped, six different amounts, each with a stated reason;
+- 1 needed a 90° rotation that no automatic pass had caught;
+- the remaining 15 are pages whose printed area **runs past the camera frame** — text sliced
+  mid-word at the edge (`"...sfera: continentes, is..."`, `"...Mundial, entr"`, prices reading only
+  `67`, `16`, `139`). The missing strip was never photographed.
+
+### What a rectifier can and cannot do about that
+
+DocTr++ is the method built for exactly this ("whether or not the document is fully present in the
+image"), but **its weights were never released**: issue #22 asks for them and has no substantive
+reply, so it cannot be run here, the same wall as DocReal.
+
+DvD was run on three of these pages instead. It returns a full rectangle — 977×1400 for a page the
+camera had cut — but the top line still reads `...es animales`, because **a rectifier reconstructs
+geometry, not ink**. No model can print back the half-column that was never captured.
+
+So the honest end state: the pipeline's crop is correct wherever the page is in the photograph, and
+the 15 failures that remain are a statement about how those pages were photographed, not about how
+they were cropped.
