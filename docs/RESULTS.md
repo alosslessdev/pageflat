@@ -773,3 +773,27 @@ does **not crop**. Measured on three pages, its border strips are genuinely dark
 255), so a band of 0.86–0.99 is not a metric artefact — it keeps the whole frame. Our pipeline crops
 and DvD rectifies; they are complementary rather than competing, and the fair statement is that a
 combination (DvD's mapping, then our page crop) is untested.
+
+## Cropping cannot be fixed against the band metric, and the worst crops say why
+
+Two post-rectification crops were implemented and measured on the control-point outputs. Both are
+worse by the band metric, and the reason is structural rather than a tuning failure:
+
+| crop | cp-from-mask (>0.5) | cp-from-VLM (>0.5) |
+|---|---|---|
+| none | 44 | 19 |
+| ink bbox, margin 2 % / 4 % / 6 % / 8 % / 12 % | 48 / 48 / 49 / 49 / 48 | — |
+| paper-region (largest bright low-saturation component) | 52 | 26 |
+
+The band is the paper-likeness of the **outer 3 % strip**. A looser crop leaves that strip white and
+scores well; every tighter crop puts print against the frame and scores worse. So the metric rewards
+leaving margin, which is why the VLM preferred **no trim on six of eight pages** earlier in the same
+session. Cropping is not the defect — the metric is.
+
+**What the worst crops actually show**, and it is not the crop: `IMG_20260506_224719` (band 1.00)
+came out **rotated 180° with a yellow poster still in frame**, because the page mask captured two
+sheets at once. That is a *detection* failure, and no crop can repair it.
+
+Both crops were therefore removed rather than shipped unevaluated. The order question is settled
+though: rectification subsumes perspective correction, so straighten-then-crop is the correct pipeline
+shape — there is simply no crop rule that improves this metric once the detection is wrong.
