@@ -797,3 +797,31 @@ sheets at once. That is a *detection* failure, and no crop can repair it.
 Both crops were therefore removed rather than shipped unevaluated. The order question is settled
 though: rectification subsumes perspective correction, so straighten-then-crop is the correct pipeline
 shape — there is simply no crop rule that improves this metric once the detection is wrong.
+
+## The VLM fixes the crops the metrics could not
+
+The 19 control-point outputs above the 0.5 band were shown to a vision model, one page each, with no
+metric attached, and it returned `upright` and a crop rectangle with a written reason. Applying those
+rectangles through the existing `--trim-file` path, with the word-retention guard in place:
+
+| | pages | band median | band > 0.5 | OCR words |
+|---|---|---|---|---|
+| before | 66 | 0.37 | 19 | 2619 |
+| after VLM crops | 66 | 0.36 | **15** | **2653** |
+
+**Eight of the nineteen were declared already correct.** Their rectangles came back `[0,0,1,1]` — the
+frame is tight and the "background" the band metric was penalising is the **page's own saturated
+printing**, a yellow masthead band running to the edge. `_paper_like` scores saturated yellow as
+non-paper, so a correctly cropped page with full-bleed colour scores as badly as a page with a table
+in frame. That is a defect in the metric, not in the output.
+
+The other eleven were real, and they named something the metrics could never name: **the yellow
+"DIA a DIA" newspaper underneath the page**, visible as a strip at the bottom of many spreads. The
+model cropped `y1 = 0.91`, `0.886`, `0.855`, `0.862`, `0.925`, `0.934` — six different amounts, each
+with the note "lowest text ends well above". A single trim value cannot do this, which is why the
+fixed-fraction sweep earlier failed.
+
+One page needed rotation (`IMG_20260506_224427`, 90° clockwise), which no automatic pass had caught.
+
+**So the answer to "fix the cropping" is: cropping is fixed by looking, not by a threshold.** The
+pipeline already accepts those rectangles (`--trim-file`, guarded); what it cannot do is produce them.
