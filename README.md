@@ -180,4 +180,6 @@ Licences of the borrowed models/code remain with their authors (MIT for UVDoc an
 page_dewarp, research licences for DocTr/BookNet). This software includes DocTR technology https://github.com/fh2019ustc/DocTr for non-commercial use.
 
 Full bibliography with links and licences: [docs/REFERENCES.md](docs/REFERENCES.md).
+How the external rectifiers were run (and why two of them cannot be):
+[docs/RECTIFIERS.md](docs/RECTIFIERS.md).
 
