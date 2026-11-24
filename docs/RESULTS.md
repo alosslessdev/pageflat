@@ -885,3 +885,34 @@ So the honest answer to "are the 100 pages solved" is **no, though the corpus is
 and fully processed**. The pipeline preserves content best with the plain mask quad, presents the least
 background with the annotated outline, and has no setting that does both. The 15 camera-cut pages
 remain outside any of this, since their missing strip was never photographed.
+
+## Per-page arbitration, and why it does not quite escape the trade
+
+The obvious way out of "choose which defect to pay for" is not to choose once: build both outlines for
+every page and keep the better one. That is now implemented (`cp_arbitrate`, on by default when an
+outline annotation exists) — the quad warp and the control-point warp are both produced, and the page
+keeps whichever cuts no text, breaking ties on band.
+
+| configuration | sources | outputs | band med | band > 0.5 | cut pages |
+|---|---|---|---|---|---|
+| baseline (quad) | 100 | 127 | 0.39 | 47 | **35** |
+| annotated walk | 100 | 117 | 0.37 | **30** | 53 |
+| arbitrated, "fewer cut lines" | 100 | 122 | 0.39 | 41 | 46 |
+| arbitrated, "zero cuts first" | 100 | 122 | 0.38 | 40 | 45 |
+
+Two things were learned here, one about the rule and one about the framing.
+
+**The rule matters.** Comparing cut-line counts is not the same as avoiding cut pages: a page with a
+single cut line counts as cut, so "fewer lines" can still lose content where the other candidate loses
+none. Scoring zero-cuts-first moved the result from 41/46 to 40/45.
+
+**But the candidates are not comparable.** The two warps produce **different page sets** — 127 outputs
+from the quad path against 122 from the annotated one — because the control-point warp covers a spread
+whole, so the two-page split no longer happens. Arbitration can only pick the better of two crops of the
+*same* page; here it is picking between two different pipelines, so the comparison is partly between
+different pages. That is why 45 cut pages is worse than the baseline's 35: the pages it can improve are
+fewer than the pages that changed identity.
+
+To actually escape the trade, the decision has to be made **before** splitting: choose the outline,
+then split the chosen warp, so every page exists in both candidates. That is the next step, and it is
+a restructuring of the GPU path rather than a tuning knob.

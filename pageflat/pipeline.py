@@ -36,6 +36,7 @@ class Settings:
     trim_file: str = ""             # precomputed {stem: {top,bottom,left,right}} fractions to trim
     edges_file: str = ""            # precomputed {stem: {corners, edges}} boundary control points
     cp_dewarp: bool = False         # derive control points from the page mask and dewarp
+    cp_arbitrate: bool = True       # per page, keep the outline that cuts least text
     cp_count: int = 24              # how many control points around the contour
     align_axes: bool = False        # OFF: the padded squareness rotation measured worse on the
                                     # full set (squareness 0.42 -> 0.56 deg, pages above 1 deg
@@ -170,6 +171,33 @@ def _load_trim(path: str) -> dict:
         except Exception:  # noqa: BLE001
             _TRIM = {}
     return _TRIM
+
+
+def _cut_lines(page: np.ndarray, edge: int = 6) -> int:
+    """Text lines touching the frame -- the content-loss signal used for arbitration."""
+    from .charlines import detect_lines
+
+    n = 0
+    h, w = page.shape[:2]
+    for line in detect_lines(page):
+        if len(line.boxes) < 3:
+            continue
+        if (line.left <= edge or line.right >= w - edge
+                or min(b[1] for b in line.boxes) <= edge
+                or max(b[1] + b[3] for b in line.boxes) >= h - edge):
+            n += 1
+    return n
+
+
+def _band_score(page: np.ndarray, frac: float = 0.03) -> float:
+    """How far the frame's border strips are from paper -- higher is more background."""
+    from .perspective import _paper_like
+
+    h, w = page.shape[:2]
+    b = max(4, int(frac * min(h, w)))
+    p = _paper_like(page)
+    return max(1 - float(p[:b].mean()), 1 - float(p[-b:].mean()),
+               1 - float(p[:, :b].mean()), 1 - float(p[:, -b:].mean()))
 
 
 def _apply_trim(page: np.ndarray, page_name: str, trim_file: str = "") -> np.ndarray:
@@ -737,6 +765,22 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                                                            settings.max_intermediate)
                     if warped.size:
                         s["edge_warped"] = warped
+                        if not settings.cp_arbitrate:
+                            continue
+                        # Build the quad warp as well and keep whichever outline cuts
+                        # fewer text lines, breaking ties on the band. A run-level
+                        # choice cannot do this: the walk wins on background and the
+                        # quad wins on content, and which one is right differs per page.
+                        try:
+                            out_w, out_h = geom.quad_target_size(
+                                s["quad"].points, settings.max_intermediate)
+                            src = torch.from_numpy(np.ascontiguousarray(s["img"])).to(dev)
+                            s["rect_t"] = gpu_ops.warp_quad_gpu(
+                                src, s["quad"].points, out_w, out_h)
+                            del src
+                            s["quad_warp"] = True
+                        except Exception:  # noqa: BLE001
+                            s["edge_warped"] = None
                         continue
                 out_w, out_h = geom.quad_target_size(s["quad"].points,
                                                      settings.max_intermediate)
@@ -752,7 +796,37 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
         for s in live:
             if s["rect_t"] is None and s.get("edge_warped") is None:
                 continue
-            if s.get("edge_warped") is not None:
+            if s.get("edge_warped") is not None and s.get("quad_warp"):
+                # Both outlines exist for this page: keep the one that cuts fewer text
+                # lines, and only break a tie on how much background it leaves. Done per
+                # page because the winner genuinely differs page to page -- the walk
+                # wins on background, the quad on content -- and a run-level choice pays
+                # one of those costs on every page at once.
+                edge = s["edge_warped"]
+                quad = s["rect_t"].cpu().numpy()
+                s["rect_t"] = None
+                s["quad_warp"] = False
+                s["edge_warped"] = None
+                ce, cq = _cut_lines(edge), _cut_lines(quad)
+                # Zero cuts first, then the lighter crop. Comparing line counts alone
+                # is not enough: a page with one cut line counts as a cut page, so
+                # "fewer" can still lose content where the other candidate loses none.
+                if ce == 0 and cq == 0:
+                    take_edge = _band_score(edge) <= _band_score(quad)
+                elif ce == 0:
+                    take_edge = True
+                elif cq == 0:
+                    take_edge = False
+                else:
+                    take_edge = ce < cq
+                if take_edge:
+                    rect = edge
+                    res.pick["outline"] = "control_points"
+                else:
+                    rect = quad
+                    res.pick["outline"] = "quad"
+                res.pick["cut_lines"] = [ce, cq]
+            elif s.get("edge_warped") is not None:
                 rect = s["edge_warped"]
                 s["edge_warped"] = None
             else:
