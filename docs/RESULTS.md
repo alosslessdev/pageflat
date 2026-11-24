@@ -856,3 +856,32 @@ geometry, not ink**. No model can print back the half-column that was never capt
 So the honest end state: the pipeline's crop is correct wherever the page is in the photograph, and
 the 15 failures that remain are a statement about how those pages were photographed, not about how
 they were cropped.
+
+## Every source annotated, and the trade is still a trade
+
+With the sources restored and the last 28 pages annotated, all **100/100 sources** now carry a
+control-point walk. The full corrected pipeline over the whole benchmark:
+
+| configuration | sources | outputs | band med | band > 0.5 | cut pages | needs-rot |
+|---|---|---|---|---|---|---|
+| baseline (quad warp) | 100 | 127 | 0.39 | 47 | **35** | 6 |
+| annotated control points | 100 | 117 | 0.37 | **30** | 53 | 7 |
+| annotated, walk grown 1.5 % | 100 | 117 | 0.39 | 38 | 45 | 7 |
+| annotated, walk grown 3.0 % | 100 | 124 | 0.40 | 34 | 49 | 7 |
+
+Three findings, none of them the one hoped for:
+
+1. **Coverage is complete and costs nothing else.** 100/100 sources processed, 100/100 accepted, so
+   the earlier 63/100 result was purely an annotation gap, not a pipeline limit.
+2. **The trade is exactly as it was at 25 pages.** Annotated outlines halve the band failures
+   (47 → 30) and pay with content (35 → 53 cut). Growing the walk trades back in the other direction
+   (38 / 45, then 34 / 49). **No configuration dominates the baseline on both axes**, and the baseline
+   keeps the fewest cut pages of any run in this session.
+3. **The dilation is not a fix.** The natural guess — the VLM walks slightly inside the page — is
+   half right: dilating reduces cut pages 53 → 45 and raises band 30 → 38, and the 3 % point does not
+   continue that trend, so the response is noise as much as geometry.
+
+So the honest answer to "are the 100 pages solved" is **no, though the corpus is now fully annotated
+and fully processed**. The pipeline preserves content best with the plain mask quad, presents the least
+background with the annotated outline, and has no setting that does both. The 15 camera-cut pages
+remain outside any of this, since their missing strip was never photographed.
