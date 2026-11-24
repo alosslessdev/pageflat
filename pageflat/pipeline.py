@@ -36,7 +36,8 @@ class Settings:
     trim_file: str = ""             # precomputed {stem: {top,bottom,left,right}} fractions to trim
     edges_file: str = ""            # precomputed {stem: {corners, edges}} boundary control points
     cp_dewarp: bool = False         # derive control points from the page mask and dewarp
-    cp_arbitrate: bool = True       # per page, keep the outline that cuts least text
+    cp_arbitrate: bool = False      # choose the outline per source after splitting; measured
+                                    # four ways and never dominates, so off by default
     cp_count: int = 24              # how many control points around the contour
     align_axes: bool = False        # OFF: the padded squareness rotation measured worse on the
                                     # full set (squareness 0.42 -> 0.56 deg, pages above 1 deg
@@ -807,25 +808,13 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                 s["rect_t"] = None
                 s["quad_warp"] = False
                 s["edge_warped"] = None
-                ce, cq = _cut_lines(edge), _cut_lines(quad)
-                # Zero cuts first, then the lighter crop. Comparing line counts alone
-                # is not enough: a page with one cut line counts as a cut page, so
-                # "fewer" can still lose content where the other candidate loses none.
-                if ce == 0 and cq == 0:
-                    take_edge = _band_score(edge) <= _band_score(quad)
-                elif ce == 0:
-                    take_edge = True
-                elif cq == 0:
-                    take_edge = False
-                else:
-                    take_edge = ce < cq
-                if take_edge:
-                    rect = edge
-                    res.pick["outline"] = "control_points"
-                else:
-                    rect = quad
-                    res.pick["outline"] = "quad"
-                res.pick["cut_lines"] = [ce, cq]
+                # Keep both until the page has been split: the split differs between
+                # the two warps, so the choice has to be made on split pages (see the
+                # gates loop), not on the unsplit rectangle.
+                rect = edge
+                res.pick["outline"] = "control_points"
+                s["alt_rect"] = quad
+                s["alt_label"] = "quad"
             elif s.get("edge_warped") is not None:
                 rect = s["edge_warped"]
                 s["edge_warped"] = None
@@ -931,10 +920,35 @@ def process_batch_gpu(paths, out_dir: str | Path, detector,
                     rect = detector.illuminate(rect)
                 if settings.trim_background:
                     rect = trim_background(rect)
-                pages = [rect]
+
+                # Choose the outline here, not before the split: the two warps cover a
+                # spread differently, so arbitrating earlier compared pipelines on
+                # different page sets (127 outputs against 122). Both candidates are
+                # split first, then the one whose pages cut no text is kept.
+                candidates = [(rect, res.pick.get("outline", "single"))]
+                alt = s.get("alt_rect")
+                if alt is not None and settings.cp_arbitrate:
+                    candidates.append((alt, s.get("alt_label", "quad")))
+                chosen, chosen_pages, best = None, None, None
+                for cand, label in candidates:
+                    cpages = [cand]
+                    if settings.split_spreads:
+                        cpages, _ = spine.split_without_losing_text(cand)
+                    cuts = sum(1 for pg in cpages if _cut_lines(pg) > 0)
+                    # Pages first: a candidate that failed to split has one page and
+                    # therefore looks better on a raw cut count, which quietly threw
+                    # the split away (108 outputs instead of 127). Keep the most
+                    # pages, then the fewest cut pages, then the lighter crop.
+                    score = (-len(cpages), cuts, max(_band_score(pg) for pg in cpages))
+                    if best is None or score < best:
+                        best, chosen, chosen_pages = score, label, cpages
+                s["alt_rect"] = None
+                pages = chosen_pages
+                if len(candidates) > 1:
+                    res.pick["outline"] = chosen
+                    res.pick["outline_cuts"] = best[0]
                 if settings.split_spreads:
-                    pages, _split_info = spine.split_without_losing_text(rect)
-                    res.pick["split"] = _split_info
+                    res.pick.setdefault("split", len(pages))
                 kept = []
                 for page in pages:
                     surface_ok, m_surface = quality.surface_checks(

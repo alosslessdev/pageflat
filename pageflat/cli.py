@@ -94,6 +94,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cp-dewarp", action="store_true",
                     help="derive control points from the page mask contour and dewarp "
                          "through them (Xie et al., Document Dewarping with Control Points)")
+    ap.add_argument("--cp-arbitrate", action="store_true",
+                    help="with --edges-file, keep the quad or the control-point warp per source "
+                         "whichever cuts least text (measured: never beats either run alone)")
     ap.add_argument("--cp-count", type=int, default=24,
                     help="control points sampled around the page contour for --cp-dewarp")
     ap.add_argument("--edges-file", default="",
@@ -143,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         trim_file=args.trim_file,
         edges_file=args.edges_file,
         cp_dewarp=args.cp_dewarp,
+        cp_arbitrate=args.cp_arbitrate,
         cp_count=args.cp_count,
         straighten_edges=not args.no_edge_shear,
         fix_tilt=not args.no_tilt,

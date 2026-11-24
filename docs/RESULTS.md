@@ -916,3 +916,31 @@ fewer than the pages that changed identity.
 To actually escape the trade, the decision has to be made **before** splitting: choose the outline,
 then split the chosen warp, so every page exists in both candidates. That is the next step, and it is
 a restructuring of the GPU path rather than a tuning knob.
+
+### Four arbitration rules, none of which escapes the trade
+
+Choosing per page looked like the way to take the 14 free wins without paying the 26. It was
+implemented four ways and measured each time on the same 100 sources:
+
+| rule | outputs | band > 0.5 | cut pages |
+|---|---|---|---|
+| baseline (quad only) | 127 | 47 | **35** |
+| annotated (walk only) | 117 | **30** | 53 |
+| per page before the split, fewest cut lines | 122 | 41 | 46 |
+| per page before the split, zero cuts first | 122 | 40 | 45 |
+| per source after the split, cuts then band | 108 | 43 | 48 |
+| per source after the split, pages first | 119 | 43 | 50 |
+
+**Every rule lands between the two runs and none dominates.** Two of the failures were mine and are
+fixed: comparing cut *lines* instead of cut *pages*, and comparing candidates with different page
+counts, which let a candidate that had lost its split win on a raw cut count.
+
+The third failure is not a bug. The two candidates respond to the same change in opposite directions
+by construction — a tighter outline removes background and takes content with it — so no choice among
+them can be better than both, and the arbitration is now `--cp-arbitrate`, off by default, because it
+costs a second warp per page and buys nothing.
+
+**The lever is annotation precision, not the choice rule.** The VLM walks carry 20–32 hand-estimated
+points on a 1100-pixel rendering, so their error is a substantial fraction of a character height in
+the original; an outline that is precise to a few pixels would make the walk strictly better than the
+mask quad and the trade would disappear. That is a labelling-resolution problem, not a logic problem.
