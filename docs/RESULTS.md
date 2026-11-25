@@ -944,3 +944,36 @@ costs a second warp per page and buys nothing.
 points on a 1100-pixel rendering, so their error is a substantial fraction of a character height in
 the original; an outline that is precise to a few pixels would make the walk strictly better than the
 mask quad and the trade would disappear. That is a labelling-resolution problem, not a logic problem.
+
+## Tiled annotation: precise edges, and what the cut metric really measures
+
+The coarse walk is estimated on a ~1100 px view, so a pixel of model error is about four in the
+original — that was the hypothesis for why the control-point outline traded background for content.
+`pageflat/tiles.py` implements the fix: cut the photograph into four overlapping tiles, upscale each,
+mark the page edge in every tile, map the points back to full-image coordinates and rebuild one walk.
+
+**The merge is exact.** On a synthetic page with a known quadrilateral, where each tile reports the
+true edge points that fall inside it, the merged walk deviates from the true outline by **0.0 px** —
+the coordinate mapping is right, so any remaining error is the model's, not the geometry's.
+
+Twelve pages were then annotated tile by tile (48 tiles, six agents) and run against the same pages:
+
+| outline | outputs | mean band | band > 0.5 | cut pages |
+|---|---|---|---|---|
+| baseline quad | 16 | 0.34 | **0** | **6** |
+| coarse VLM walk | 13 | 0.36 | 2 | 8 |
+| **tiled** VLM walk | 13 | **0.33** | **1** | 9 |
+
+Tiling does what it was meant to: band failures 2 → 1 and mean band 0.36 → 0.33, the best crop quality
+measured. What it does not do is reduce cut pages — they went 8 → 9.
+
+That last number is a statement about the metric, not about the crop. A *cut* page here means a text
+line within 6 px of the frame. A page whose printing runs to its own edge — a full-bleed magazine
+spread, which several of these are — produces exactly that even when nothing is missing, and a more
+accurate outline makes it more likely, because the outline now lands on the real page edge instead of
+stopping safely short of the print. So on these pages the cut count is partly counting **by-design
+edge printing**, and it cannot distinguish that from a sliced column.
+
+The two metrics have therefore reached their limit at the same time: band scores saturated page
+printing as background, and cut scores full-bleed printing as loss. Neither can be fixed by cropping
+better or annotating closer — both need a comparison against the content that should be there.
